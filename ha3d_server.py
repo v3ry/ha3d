@@ -191,12 +191,21 @@ def get_status() -> dict:
     return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id)}
 
 
+def parse_ha_url(ha_url: str) -> tuple:
+    """Extrait (host, port) d'une URL Home Assistant (robuste : https, chemins, IPv6)."""
+    _u = urlparse(ha_url)
+    return _u.hostname or "127.0.0.1", _u.port or 8123
+
+
 def _sse_broadcast(obj: dict):
     payload = "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
     with SSE_LOCK:
         for q in list(SSE_CLIENTS):
             try:
                 q.put_nowait(payload)
+            except queue.Full:
+                # Client trop lent : sa file est saturée → on le déconnecte
+                SSE_CLIENTS.discard(q)
             except Exception:
                 SSE_CLIENTS.discard(q)
 
@@ -205,21 +214,26 @@ def _ws_ha_loop():
     """Thread : s'abonne aux state_changed de HA via WebSocket et met à jour le cache."""
     from ha_ws import Ws  # client websocket minimal, même dossier
 
-    _u = urlparse(HA_URL)
-    host = _u.hostname or "127.0.0.1"
-    port = _u.port or 8123
+    host, port = parse_ha_url(HA_URL)
+    backoff = 5
     while True:
         try:
             ws = Ws(host, port, "/api/websocket")
             # Auth
             while True:
                 m = ws.recv()
-                if m and m.get("type") == "auth_required":
+                if not m:
+                    continue
+                t = m.get("type")
+                if t == "auth_required":
                     ws.send({"type": "auth", "access_token": HA_TOKEN})
-                elif m and m.get("type") == "auth_ok":
+                elif t == "auth_ok":
                     break
+                elif t == "auth_invalid":
+                    raise ConnectionError("auth_invalid — token HA invalide ou expiré")
             ws.send({"id": 1, "type": "subscribe_events", "event_type": "state_changed"})
             print("🟢 WebSocket HA connecté (temps réel)")
+            backoff = 5  # connexion OK : on repart de la base
             tracked = _tracked_ids()
             door_ids = _door_ids()
             while True:
@@ -265,8 +279,15 @@ def _ws_ha_loop():
                         _entry = dict(STATE_CACHE.get(eid) or {})
                     _sse_broadcast({"type": "update", "entity": eid, **_entry})
         except Exception as e:
-            print(f"⚠️ WebSocket HA: {e} — reconnexion dans 5 s")
-            time.sleep(5)
+            msg = str(e)
+            delay = backoff
+            if "auth_invalid" in msg:
+                delay = 60
+                print(f"🔴 WebSocket HA : {msg} — nouvel essai dans {delay} s")
+            else:
+                print(f"⚠️ WebSocket HA: {msg} — reconnexion dans {delay} s")
+            time.sleep(delay)
+            backoff = min(backoff * 2, 60)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -291,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_sse(self):
         """Server-Sent Events : snapshot initial puis mises à jour temps réel."""
-        q = queue.Queue()
+        q = queue.Queue(maxsize=100)  # bornée : un client lent est déconnecté plutôt que de saturer la RAM
         with SSE_LOCK:
             SSE_CLIENTS.add(q)
         try:

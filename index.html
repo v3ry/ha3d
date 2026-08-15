@@ -386,6 +386,15 @@ function addGround() {
 }
 
 // ============ BÂTIMENTS ============
+// Tolérances mur/porte centralisées (matching des ouvertures)
+const DOOR_EPS_ROT = 0.001;  // radians — couvre 1.5708 (JSON) vs Math.PI/2 (JS)
+const DOOR_EPS_POS = 0.01;   // mètres — position du mur porteur
+
+// Une porte appartient à un segment de mur si même angle + même axe porteur
+function doorMatchesSegment(d, seg) {
+  return Math.abs(d.rotY - seg.rotY) < DOOR_EPS_ROT && Math.abs(d.fixed - seg.fixed) < DOOR_EPS_POS;
+}
+
 function buildRooms() {
   layout.levels.forEach((level, li) => {
     const y = level.y_floor, h = level.height;
@@ -418,7 +427,7 @@ function buildRooms() {
     //    découpé aux ouvertures de portes (layout.doors)
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x9aa7b8, transparent: true, opacity: 0.9 });
     const doorHoles = (seg) => (layout.doors || [])
-      .filter(d => Math.abs(d.rotY - seg.rotY) < 0.001 && Math.abs(d.fixed - seg.fixed) < 0.01)
+      .filter(d => doorMatchesSegment(d, seg))
       .map(d => ({ a: d.t - d.width / 2, b: d.t + d.width / 2 }))
       .filter(h => h.b > seg.a0 + 0.01 && h.a < seg.a1 - 0.01)
       .sort((x, y) => x.a - y.a);
@@ -790,7 +799,7 @@ function buildDoors() {
   const level = layout.levels[0];
   const y = level.y_floor;
   (layout.doors || []).forEach(d => {
-    const isV = Math.abs((d.rotY || 0) - Math.PI / 2) < 0.001;  // mur vertical (ligne x=fixed)
+    const isV = Math.abs((d.rotY || 0) - Math.PI / 2) < DOOR_EPS_ROT;  // mur vertical (ligne x=fixed)
     const half = d.width / 2;
     const hgt = d.height || 2.1;
     // Extrémités de l'ouverture [x, z]
@@ -1554,7 +1563,9 @@ function bindDebugDrag() {
         const re = debugRoomEdit;
         document.getElementById('debug-sel').innerHTML =
           `✅ <b>${re.room.name}</b> → x=${re.room.x} z=${re.room.z} w=${re.room.w} d=${re.room.d}<br>` +
-          `<span style="color:#8b949e">Cliquez 💾 pour sauvegarder sur le serveur.</span>`;
+          (re.grab === 'move'
+            ? '<span style="color:#8b949e">Capteurs, meubles et portes suivis. Cliquez 💾 pour sauvegarder.</span>'
+            : '<span style="color:#8b949e">Redimensionnement : les capteurs gardent leur position absolue. 💾 pour sauvegarder.</span>');
       }
       debugRoomEdit = null;
       return;
@@ -2117,7 +2128,7 @@ function connectSSE() {
     };
     sseSource.onerror = () => {
       sseConnected = false;
-      // EventSource se reconnecte automatiquement ; le polling 15s reprend
+      // EventSource se reconnecte automatiquement ; le polling 60 s reprend (fallback)
     };
   } catch (e) { /* pas de SSE */ }
 }
@@ -2149,12 +2160,16 @@ function cycleDayNight() {
   btn.title = `Mode : ${dayNightMode}`;
 }
 
+let _lastDayNightT = 0;
 function updateDayNight() {
-  // Transition douce vers le facteur cible (évite les sauts brusques)
+  // Transition douce vers le facteur cible — lerp sur delta-time (indépendant du framerate)
   if (!ambientLight || !dirLight) return;
+  const now = performance.now();
+  const dt = _lastDayNightT ? Math.min((now - _lastDayNightT) / 1000, 0.5) : 0.016;
+  _lastDayNightT = now;
   const target = dayNightFactor();
   const f = (ambientLight.intensity - 0.15) / 0.40;
-  const next = f + (target - f) * 0.05;
+  const next = f + (target - f) * (1 - Math.exp(-dt * 2.5));
   applyDayNight(next);
 }
 
@@ -2206,6 +2221,11 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
   updateDayNight();
+  // Re-décluttre les étiquettes pendant l'orbite (throttlé ~300 ms) — la caméra bouge
+  if (showLabels && (!animate._declutterLast || performance.now() - animate._declutterLast > 300)) {
+    animate._declutterLast = performance.now();
+    declutterLabels();
+  }
   // Reconstruction des murs pendant l'édition de pièces (throttlée ~150ms)
   if (_roomDirty) {
     const now = performance.now();
