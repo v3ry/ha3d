@@ -179,6 +179,7 @@
     <button id="btn-reset">Réinitialiser</button>
     <button id="btn-capture">📷 Capture</button>
     <button id="btn-debug">🔧 Debug</button>
+    <button id="btn-daynight" title="Mode jour/nuit">🌗</button>
   </div>
   <div class="filter-row" id="filters"></div>
 </div>
@@ -205,10 +206,11 @@
 <div id="debug-panel" class="hidden">
   <button class="close" id="debug-close">✕</button>
   <h2>🔧 Mode debug</h2>
-  <p class="dbg-hint">Clique-glisse sur une sphère pour la déplacer (mode Sol X/Z ou Hauteur Y). La sauvegarde écrit tout sur le serveur.</p>
+  <p class="dbg-hint">Clique-glisse : sphère (Sol X/Z ou Hauteur Y), ou pièce (mode Pièces : intérieur = déplacer, bords/coins = redimensionner). 💾 écrit tout sur le serveur.</p>
   <div class="dbg-modes">
     <button id="debug-mode-xz" class="active">↔ Sol (X/Z)</button>
     <button id="debug-mode-y">↕ Hauteur (Y)</button>
+    <button id="debug-mode-rooms">🏠 Pièces</button>
   </div>
   <div class="dbg-sel" id="debug-sel">Aucun objet sélectionné.</div>
   <div class="dbg-campos" id="debug-campos"></div>
@@ -259,6 +261,11 @@ function applyDefaultCamera() {
 }
 let sensorMeshes = [];
 let roomMeshes = [];
+let roomsGroup = null;   // murs + étiquettes de pièces (reconstruit à chaud)
+let decorGroup = null;   // sols + meubles + porte (reconstruit en fin de drag)
+let floorMeshes = [];    // sols par pièce (suivi position/taille)
+let furnitureMeshes = []; // meubles (suivi position après édition pièce)
+let modelObjects = [];   // modèles glTF chargés
 let labelSprites = [];
 let controls, scene, camera, renderer, raycaster, mouse;
 let exploded = false;
@@ -269,6 +276,10 @@ async function init() {
   const canvas = document.getElementById('scene3d');
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0d1117);
+  roomsGroup = new THREE.Group();
+  decorGroup = new THREE.Group();
+  scene.add(roomsGroup);
+  scene.add(decorGroup);
   camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 500);
   renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
   renderer.setSize(innerWidth, innerHeight);
@@ -309,20 +320,52 @@ async function init() {
   buildLegend();
   bindUI();
   bindDebugDrag();
+  setTimeout(declutterLabels, 300);  // après le premier rendu
   document.getElementById('hud-sub').textContent =
     `${l.house_name} · ${(s.sensors||[]).length} capteurs`;
   refreshStatus();
-  setInterval(refreshStatus, 15000);
+  connectSSE();  // temps réel (WebSocket HA → SSE)
+  setInterval(refreshStatus, 60000);  // fallback si SSE indisponible
   animate();
 }
 
+// Lumières de scène (référencées pour le mode jour/nuit)
+let ambientLight = null;
+let dirLight = null;
+
 function addLights() {
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-  const d = new THREE.DirectionalLight(0xffffff, 0.9);
-  d.position.set(15, 25, 10);
-  scene.add(d);
+  ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+  scene.add(ambientLight);
+  dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  dirLight.position.set(15, 25, 10);
+  scene.add(dirLight);
 }
 
+// ============ MODE JOUR / NUIT ============
+let dayNightMode = 'auto';  // 'auto' | 'day' | 'night'
+const DAY_START = 7, DAY_END = 21;  // heures
+
+function dayNightFactor() {
+  if (dayNightMode === 'day') return 1;
+  if (dayNightMode === 'night') return 0;
+  const h = new Date().getHours();
+  if (h >= DAY_START && h < DAY_END) return 1;
+  // Transition douce aux limites (~1 h)
+  const before = (DAY_START - h);       // h < DAY_START
+  const after = (h - DAY_END + 1);      // h >= DAY_END
+  if (h >= DAY_START - 1 && h < DAY_START) return 1 - before;   // 6h→7h : montée
+  if (h >= DAY_END && h < DAY_END + 1) return 1 - after;        // 21h→22h : descente
+  return 0;
+}
+
+function applyDayNight(f) {
+  if (!ambientLight || !dirLight) return;
+  ambientLight.intensity = 0.15 + 0.40 * f;   // 0.15 nuit → 0.55 jour
+  dirLight.intensity = 0.15 + 0.75 * f;       // 0.15 nuit → 0.90 jour
+  // Léger fond bleu nuit / noir jour
+  const r = 0.03 + 0.05 * f, g = 0.05 + 0.06 * f, b = 0.10 + 0.05 * f;
+  scene.background.setRGB(r, g, b);
+}
 function addGround() {
   const grid = new THREE.GridHelper(40, 20, 0x30363d, 0x21262d);
   grid.position.y = -0.02;
@@ -380,7 +423,7 @@ function buildRooms() {
       wall.castShadow = true;
       wall.receiveShadow = false;
       wall.userData = { roomId: m.room };
-      scene.add(wall);
+      roomsGroup.add(wall);
       // Arêtes du segment (montants + linteau)
       const px0 = m.rotY === 0 ? m.a0 : m.fixed, pz0 = m.rotY === 0 ? m.fixed : m.a0;
       const px1 = m.rotY === 0 ? m.a1 : m.fixed, pz1 = m.rotY === 0 ? m.fixed : m.a1;
@@ -389,14 +432,14 @@ function buildRooms() {
         new THREE.Vector3(px1, y + h, pz1), new THREE.Vector3(px1, y, pz1),
       ];
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat);
-      scene.add(line);
+      roomsGroup.add(line);
     });
     // 4) Étiquettes de pièces (une par pièce)
     level.rooms.forEach(room => {
       const cx = room.x + room.w / 2, cz = room.z + room.d / 2;
       const floorLabel = makeFloorLabel(room.name);
       floorLabel.position.set(cx, y + 0.115, cz);
-      scene.add(floorLabel);
+      roomsGroup.add(floorLabel);
       roomMeshes.push({ mesh: null, room, level: li, y, label: floorLabel });
     });
   });
@@ -658,7 +701,8 @@ function buildDecor() {
     floor.position.set(room.x+room.w/2, level.y_floor+0.05, room.z+room.d/2);
     floor.receiveShadow = true;
     floor.userData = { roomId: room.id };
-    scene.add(floor);
+    decorGroup.add(floor);
+    floorMeshes.push({ mesh: floor, roomId: room.id, w: room.w, d: room.d });
   });
 
   // --- Meubles : boîtes simples + modèles 3D (glTF) ---
@@ -677,7 +721,8 @@ function buildDecor() {
       obj.rotation.y = mp.rotY;
       obj.position.set(room.x + mp.x*room.w, level.y_floor, room.z + mp.z*room.d);
       obj.traverse(ch => { if (ch.isMesh) ch.castShadow = false; });
-      scene.add(obj);
+      decorGroup.add(obj);
+      modelObjects.push({ obj, mp, roomId: mp.room });
     }, undefined, err => {
       console.warn('Modèle 3D non chargé:', mp.model, err);
     });
@@ -690,7 +735,8 @@ function buildDecor() {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(room.x + f.x*room.w, level.y_floor + f.h/2, room.z + f.z*room.d);
       mesh.castShadow = false;
-      scene.add(mesh);
+      decorGroup.add(mesh);
+      furnitureMeshes.push({ mesh, roomId: room.id, f });
     });
   });
 
@@ -704,7 +750,7 @@ function buildDecor() {
     doorGroup.add(door);
     doorGroup.position.set(garage.x + garage.w*.15, 0, garage.z + .06);
     door.position.set(0, level.y_floor + 1.15, 0);
-    scene.add(doorGroup);
+    decorGroup.add(doorGroup);
     window._garageDoor = { group: doorGroup, mesh: door, hingeX: 0, baseY: level.y_floor + 1.15 };
   }
 }
@@ -1123,16 +1169,20 @@ function bindUI() {
   document.getElementById('btn-top').onclick = () => {
     camera.position.set(4.5, 22, 10);
     controls.target.set(4.5, 0, 10);
+    setTimeout(declutterLabels, 100);
   };
   document.getElementById('btn-capture').onclick = capturePNG;
   document.getElementById('btn-reset').onclick = () => {
     controls.reset ? controls.reset() : null;
     applyDefaultCamera();
+    setTimeout(declutterLabels, 100);
   };
   document.getElementById('btn-debug').onclick = (e) => toggleDebug(e.target);
+  document.getElementById('btn-daynight').onclick = cycleDayNight;
   document.getElementById('debug-close').onclick = () => toggleDebug(document.getElementById('btn-debug'));
   document.getElementById('debug-mode-xz').onclick = () => setDebugAxis('xz');
   document.getElementById('debug-mode-y').onclick = () => setDebugAxis('y');
+  document.getElementById('debug-mode-rooms').onclick = () => setDebugAxis('rooms');
   document.getElementById('debug-export').onclick = exportDebugPositions;
   document.getElementById('debug-cam-set').onclick = setDefaultCameraFromView;
   document.getElementById('debug-save').onclick = saveLayoutToServer;
@@ -1149,8 +1199,9 @@ function bindUI() {
 
 // ============ MODE DEBUG : DÉPLACEMENT DES ENTITÉS ============
 let debugMode = false;
-let debugAxis = 'xz';       // 'xz' = sol, 'y' = hauteur
+let debugAxis = 'xz';       // 'xz' = sol, 'y' = hauteur, 'rooms' = édition pièces
 let debugDrag = null;       // { entry, plane, startX, startZ, moved }
+let debugRoomEdit = null;   // { room, grab, start, offX, offZ, sensors, moved }
 let debugWasDrag = false;
 
 function toggleDebug(btn) {
@@ -1169,6 +1220,7 @@ function setDebugAxis(axis) {
   debugAxis = axis;
   document.getElementById('debug-mode-xz').classList.toggle('active', axis === 'xz');
   document.getElementById('debug-mode-y').classList.toggle('active', axis === 'y');
+  document.getElementById('debug-mode-rooms').classList.toggle('active', axis === 'rooms');
 }
 
 function debugPlaneAt(y) {
@@ -1208,6 +1260,7 @@ function bindDebugDrag() {
   const el = renderer.domElement;
   el.addEventListener('pointerdown', (evt) => {
     if (!debugMode) return;
+    if (debugAxis === 'rooms') { startRoomEdit(evt); return; }
     const s = pickSensor(evt);
     if (!s) return;
     const entry = sensorMeshes.find(m => m.sensor === s);
@@ -1227,6 +1280,7 @@ function bindDebugDrag() {
       `🖱️ <b>${name}</b> — déplacez la souris…`;
   });
   el.addEventListener('pointermove', (evt) => {
+    if (debugRoomEdit) { continueRoomEdit(evt); return; }
     if (!debugDrag) return;
     const hit = rayToPlane(evt, debugDrag.plane);
     if (!hit) return;
@@ -1251,6 +1305,19 @@ function bindDebugDrag() {
       `🖱️ <b>${name}</b><br>📍 x=${p.x.toFixed(2)} · y=${p.y.toFixed(2)} · z=${p.z.toFixed(2)}`;
   });
   el.addEventListener('pointerup', (evt) => {
+    if (debugRoomEdit) {
+      controls.enabled = true;
+      el.classList.remove('dragging');
+      el.releasePointerCapture(evt.pointerId);
+      if (debugRoomEdit.moved) {
+        const re = debugRoomEdit;
+        document.getElementById('debug-sel').innerHTML =
+          `✅ <b>${re.room.name}</b> → x=${re.room.x} z=${re.room.z} w=${re.room.w} d=${re.room.d}<br>` +
+          `<span style="color:#8b949e">Cliquez 💾 pour sauvegarder sur le serveur.</span>`;
+      }
+      debugRoomEdit = null;
+      return;
+    }
     if (!debugDrag) return;
     controls.enabled = true;
     el.classList.remove('dragging');
@@ -1261,9 +1328,140 @@ function bindDebugDrag() {
       document.getElementById('debug-sel').innerHTML =
         `✅ <b>${s.cfg.label || s.cfg.entity}</b> → x=${p.x.toFixed(2)} · y=${p.y.toFixed(2)} · z=${p.z.toFixed(2)}<br>` +
         `<span style="color:#8b949e">Utilisez « Exporter les positions » pour tout récupérer.</span>`;
+      setTimeout(declutterLabels, 50);
     }
     debugDrag = null;
   });
+}
+
+// ============ ÉDITION DES PIÈCES (mode 🏠 Pièces) ============
+let _roomDirty = false;   // demande de reconstruction des murs (rAF-throttlée)
+
+function roomGrabType(room, x, z) {
+  const t = 0.6;
+  const nearL = Math.abs(x - room.x) < t;
+  const nearR = Math.abs(x - (room.x + room.w)) < t;
+  const nearN = Math.abs(z - room.z) < t;
+  const nearS = Math.abs(z - (room.z + room.d)) < t;
+  if (nearL && nearN) return 'nw';
+  if (nearR && nearN) return 'ne';
+  if (nearL && nearS) return 'sw';
+  if (nearR && nearS) return 'se';
+  if (nearL) return 'w';
+  if (nearR) return 'e';
+  if (nearN) return 'n';
+  if (nearS) return 's';
+  return 'move';
+}
+
+function startRoomEdit(evt) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(floorMeshes.map(f => f.mesh), false);
+  if (!hits.length) return;
+  const roomId = hits[0].object.userData.roomId;
+  const room = layout.levels.flatMap(l => l.rooms).find(r => r.id === roomId);
+  if (!room) return;
+  evt.preventDefault();
+  const startHit = rayToPlane(evt, debugPlaneAt(0.1));
+  if (!startHit) return;
+  const grab = roomGrabType(room, startHit.x, startHit.z);
+  debugRoomEdit = {
+    room, grab,
+    plane: debugPlaneAt(0.1),
+    start: { x: startHit.x, z: startHit.z },
+    orig: { x: room.x, z: room.z, w: room.w, d: room.d },
+    sensors: layout.sensors.filter(s => s.room === room.id && s.pos)
+      .map(s => ({ cfg: s, orig: s.pos.slice() })),
+    moved: false,
+  };
+  debugWasDrag = false;
+  controls.enabled = false;
+  renderer.domElement.classList.add('dragging');
+  renderer.domElement.setPointerCapture(evt.pointerId);
+  document.getElementById('debug-sel').innerHTML =
+    `🖱️ <b>${room.name}</b> — ${grab === 'move' ? 'déplacer' : 'redimensionner (' + grab + ')'}…`;
+}
+
+function continueRoomEdit(evt) {
+  const re = debugRoomEdit;
+  const hit = rayToPlane(evt, re.plane);
+  if (!hit) return;
+  const dx = hit.x - re.start.x, dz = hit.z - re.start.z;
+  const r = re.room;
+  let changed = false;
+  if (re.grab === 'move') {
+    const nx = Math.round((re.orig.x + dx) * 100) / 100;
+    const nz = Math.round((re.orig.z + dz) * 100) / 100;
+    if (nx !== r.x || nz !== r.z) { r.x = nx; r.z = nz; changed = true; }
+    // Les capteurs de la pièce suivent le déplacement
+    re.sensors.forEach(s => {
+      const nx2 = Math.round((s.orig[0] + dx) * 100) / 100;
+      const nz2 = Math.round((s.orig[2] + dz) * 100) / 100;
+      s.cfg.pos = [nx2, s.orig[1], nz2];
+      const e = sensorMeshes.find(m => m.sensor.cfg.entity === s.cfg.entity);
+      if (e) moveDebugEntry(e, nx2, s.orig[1], nz2);
+    });
+  } else {
+    let { x, z, w, d } = re.orig;
+    if (re.grab.includes('w')) { x = re.orig.x + dx; w = re.orig.w - dx; }
+    if (re.grab.includes('e')) { w = re.orig.w + dx; }
+    if (re.grab.includes('n')) { z = re.orig.z + dz; d = re.orig.d - dz; }
+    if (re.grab.includes('s')) { d = re.orig.d + dz; }
+    if (w < 1) { if (re.grab.includes('w')) x -= (1 - w); w = 1; }
+    if (d < 1) { if (re.grab.includes('n')) z -= (1 - d); d = 1; }
+    r.x = Math.round(x * 100) / 100; r.z = Math.round(z * 100) / 100;
+    r.w = Math.round(w * 100) / 100; r.d = Math.round(d * 100) / 100;
+    changed = true;
+  }
+  if (changed) {
+    re.moved = true;
+    updateFloorLive(r);
+    updateRoomContent(r);
+    _roomDirty = true;
+    document.getElementById('debug-sel').innerHTML =
+      `✏️ <b>${r.name}</b> → x=${r.x} z=${r.z} w=${r.w} d=${r.d}`;
+  }
+}
+
+// Met à jour le sol (position + échelle) pendant le drag — léger
+function updateFloorLive(room) {
+  const fe = floorMeshes.find(f => f.roomId === room.id);
+  if (!fe) return;
+  fe.mesh.position.set(room.x + room.w / 2, 0.05, room.z + room.d / 2);
+  fe.mesh.scale.set(room.w / fe.w, 1, room.d / fe.d);
+}
+
+// Reconstruit murs + arêtes + étiquettes depuis layout (après édition)
+function rebuildRoomsVisual() {
+  while (roomsGroup.children.length) {
+    const c = roomsGroup.children.pop();
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) {
+      if (c.material.map) c.material.map.dispose();
+      c.material.dispose();
+    }
+  }
+  roomMeshes = [];
+  buildRooms();
+}
+
+// Recalcule meubles / modèles / porte garage de la pièce éditée
+function updateRoomContent(room) {
+  const level = layout.levels[0];
+  furnitureMeshes.forEach(fm => {
+    if (fm.roomId !== room.id) return;
+    fm.mesh.position.set(room.x + fm.f.x * room.w, level.y_floor + fm.f.h / 2, room.z + fm.f.z * room.d);
+  });
+  modelObjects.forEach(mo => {
+    if (mo.roomId !== room.id) return;
+    mo.obj.position.set(room.x + mo.mp.x * room.w, level.y_floor, room.z + mo.mp.z * room.d);
+  });
+  if (room.id === 'garage' && window._garageDoor) {
+    window._garageDoor.group.position.set(room.x + room.w * 0.15, 0, room.z + 0.06);
+  }
 }
 
 function exportDebugPositions() {
@@ -1492,6 +1690,7 @@ function rebuildSensors() {
   buildSensors(states);
   buildLegend();
   applyFilters();
+  setTimeout(declutterLabels, 50);
 }
 
 // ============ FILTRES PAR TYPE ============
@@ -1598,37 +1797,83 @@ function sensorBasePos(s) {
 }
 
 // ============ RAFRAÎCHISSEMENT ============
+function applyStatusData(data) {
+  if (!data || data.error || !data.sensors) {
+    if (data && data.error) document.getElementById('statusbar').textContent = `⚠️ ${data.error}`;
+    return;
+  }
+  const stateById = {};
+  data.sensors.forEach(st => stateById[st.entity] = st);
+  sensors.forEach(s => {
+    const st = stateById[s.cfg.entity];
+    if (st) s.st = st;
+  });
+  refreshSensorColors();
+  // Porte garage : trouver l'état du capteur porte
+  const doorSensor = sensors.find(s => s.cfg.entity === 'binary_sensor.ouverture_garage_contact');
+  if (doorSensor) updateGarageDoor(doorSensor.st.state);
+  updateAlerts(sensors);
+  const nb = data.sensors.filter(s => s.state && s.state !== 'unavailable').length;
+  document.getElementById('statusbar').textContent =
+    `${sseConnected ? '🔴 Temps réel' : 'Mise à jour'} ${new Date().toLocaleTimeString('fr-FR')} · ${nb}/${data.sensors.length} capteurs OK`;
+  // Détail ouvert : refresh
+  const dt = document.getElementById('detail');
+  if (dt.style.display === 'block') {
+    const s = sensors.find(x => x.cfg.label === document.getElementById('detail-title').textContent);
+    if (s) {
+      const { val, unit } = sensorValue(s);
+      document.getElementById('detail-val').textContent = `${val} ${unit}`.trim();
+    }
+  }
+}
+
 async function refreshStatus() {
   try {
     const r = await fetch('/api/status');
     const data = await r.json();
-    if (data.error) { document.getElementById('statusbar').textContent = `⚠️ ${data.error}`; return; }
-    const stateById = {};
-    data.sensors.forEach(st => stateById[st.entity] = st);
-    sensors.forEach(s => {
-      const st = stateById[s.cfg.entity];
-      if (st) s.st = st;
-    });
-    refreshSensorColors();
-    // Porte garage : trouver l'état du capteur porte
-    const doorSensor = sensors.find(s => s.cfg.entity === 'binary_sensor.ouverture_garage_contact');
-    if (doorSensor) updateGarageDoor(doorSensor.st.state);
-    updateAlerts(sensors);
-    const nb = data.sensors.filter(s => s.state && s.state !== 'unavailable').length;
-    document.getElementById('statusbar').textContent =
-      `Mise à jour ${new Date().toLocaleTimeString('fr-FR')} · ${nb}/${data.sensors.length} capteurs OK`;
-    // Détail ouvert : refresh
-    const dt = document.getElementById('detail');
-    if (dt.style.display === 'block') {
-      const s = sensors.find(x => x.cfg.label === document.getElementById('detail-title').textContent);
-      if (s) {
-        const { val, unit } = sensorValue(s);
-        document.getElementById('detail-val').textContent = `${val} ${unit}`.trim();
-      }
-    }
+    applyStatusData(data);
   } catch (e) {
     document.getElementById('statusbar').textContent = `⚠️ Erreur : ${e.message}`;
   }
+}
+
+// ============ TEMPS RÉEL (SSE) ============
+let sseConnected = false;
+let sseSource = null;
+
+function connectSSE() {
+  if (!window.EventSource) return;
+  try {
+    sseSource = new EventSource('/api/events');
+    sseSource.onopen = () => {
+      sseConnected = true;
+      document.getElementById('statusbar').textContent = '🔄 Connexion temps réel…';
+    };
+    sseSource.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'snapshot') {
+          sseConnected = true;
+          applyStatusData(msg);
+        } else if (msg.type === 'update') {
+          // Mise à jour d'une seule entité
+          const s = sensors.find(x => x.cfg.entity === msg.entity);
+          if (s) {
+            s.st = { state: msg.state, unit: msg.unit, attrs: msg.attrs || {} };
+            const entry = sensorMeshes.find(m => m.sensor === s);
+            if (entry) drawSensorLabel(entry);
+          }
+          // Porte garage si concernée
+          if (msg.entity === 'binary_sensor.ouverture_garage_contact') updateGarageDoor(msg.state);
+          updateAlerts(sensors);
+        }
+      } catch (e) { /* ignore */ }
+    };
+    sseSource.onerror = () => {
+      sseConnected = false;
+      // EventSource se reconnecte automatiquement ; le polling 15s reprend
+    };
+  } catch (e) { /* pas de SSE */ }
 }
 
 // ============ LOOP ============
@@ -1650,9 +1895,79 @@ function updateDebugCampos() {
     `<span class="lbl">💾 sauvegardée :</span> pos = (${defaultCamera.pos.map(r2).join(', ')}) · target = (${defaultCamera.target.map(r2).join(', ')})`;
 }
 
+function cycleDayNight() {
+  dayNightMode = dayNightMode === 'auto' ? 'day' : (dayNightMode === 'day' ? 'night' : 'auto');
+  const btn = document.getElementById('btn-daynight');
+  const lbl = { auto: '🌗', day: '☀️', night: '🌙' };
+  btn.textContent = lbl[dayNightMode];
+  btn.title = `Mode : ${dayNightMode}`;
+}
+
+function updateDayNight() {
+  // Transition douce vers le facteur cible (évite les sauts brusques)
+  if (!ambientLight || !dirLight) return;
+  const target = dayNightFactor();
+  const f = (ambientLight.intensity - 0.15) / 0.40;
+  const next = f + (target - f) * 0.05;
+  applyDayNight(next);
+}
+
+// ============ ÉTIQUETTES ANTI-CHEVAUCHEMENT ============
+// Projette les étiquettes à l'écran et écarte celles qui se chevauchent.
+function declutterLabels() {
+  const vis = sensorMeshes.filter(e => e.sprite && e.sprite.visible);
+  if (vis.length < 2) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const items = vis.map(e => {
+    const v = e.sprite.position.clone().project(camera);
+    return { e, x: (v.x * 0.5 + 0.5) * rect.width, y: (-v.y * 0.5 + 0.5) * rect.height };
+  });
+  const MIN = 145;  // px d'écartement minimal (étiquettes ~120-140 px de large)
+  for (let iter = 0; iter < 20; iter++) {
+    let moved = false;
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > 0.01 && d2 < MIN * MIN) {
+          const d = Math.sqrt(d2);
+          const push = (MIN - d) / 2;
+          const ux = dx / d, uy = dy / d;
+          a.x -= ux * push; a.y -= uy * push;
+          b.x += ux * push; b.y += uy * push;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  // Repositionne les sprites dans le monde (même hauteur Y, rayon caméra)
+  items.forEach(it => {
+    const v = new THREE.Vector3((it.x / rect.width) * 2 - 1, -(it.y / rect.height) * 2 + 1, 0.5);
+    v.unproject(camera);
+    const dir = v.sub(camera.position).normalize();
+    const y = it.e.sprite.position.y;
+    const t = (y - camera.position.y) / dir.y;
+    it.e.sprite.position.x = camera.position.x + dir.x * t;
+    it.e.sprite.position.z = camera.position.z + dir.z * t;
+  });
+}
+
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+  updateDayNight();
+  // Reconstruction des murs pendant l'édition de pièces (throttlée ~150ms)
+  if (_roomDirty) {
+    const now = performance.now();
+    if (!animate._lastRoomRebuild || now - animate._lastRoomRebuild > 150) {
+      animate._lastRoomRebuild = now;
+      _roomDirty = false;
+      rebuildRoomsVisual();
+    }
+  }
   // Position caméra en direct quand le mode debug est actif
   if (debugMode) updateDebugCampos();
   // Halos pulsent légèrement

@@ -6,8 +6,11 @@ Port : 9125 (libre à côté du 9123 HVAC).
 """
 import json
 import os
+import queue
+import threading
+import time
 import urllib.request
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -68,27 +71,30 @@ def get_history(entity_id: str, hours: int = 24) -> dict:
 # --- Layout + capteurs ------------------------------------------------------
 LAYOUT = json.loads((BASE_DIR / "layout.json").read_text(encoding="utf-8"))
 
+# Cache temps réel : entité -> {state, unit, attrs} alimenté par le WebSocket HA
+STATE_CACHE = {}
+STATE_CACHE_LOCK = threading.Lock()
+SSE_CLIENTS = set()
+SSE_LOCK = threading.Lock()
 
-def get_status() -> dict:
-    """Renvoie l'état en direct de chaque capteur configuré (avec attributs utiles).
 
-    Un capteur peut déclarer ``sum_with`` : dans ce cas sa valeur est la SOMME
-    (en valeur absolue) de l'entité principale + l'entité secondaire.
-    """
-    entity_ids = [s["entity"] for s in LAYOUT["sensors"]]
-    # Ajoute les entités secondaires (sum_with) à la récupération
+def _tracked_ids() -> set:
+    """Entités suivies en temps réel (capteurs du layout + sum_with)."""
+    ids = set()
     for s in LAYOUT["sensors"]:
+        ids.add(s["entity"])
         if s.get("sum_with"):
-            entity_ids.append(s["sum_with"])
-    try:
-        states = fetch_ha("/api/states")
-    except Exception as e:
-        return {"error": str(e), "sensors": []}
+            ids.add(s["sum_with"])
+    return ids
 
-    by_id = {e["entity_id"]: e for e in states}
 
-    def num(entity_id):
-        e = by_id.get(entity_id)
+def _status_entry(s: dict, by_id: dict) -> dict:
+    """Construit l'entrée de statut d'un capteur configuré depuis un dict états."""
+    sid = s["entity"]
+    sum_with = s.get("sum_with")
+
+    def num(eid):
+        e = by_id.get(eid)
         if e is None:
             return None
         try:
@@ -96,39 +102,60 @@ def get_status() -> dict:
         except (TypeError, ValueError):
             return None
 
-    out = []
-    for s in LAYOUT["sensors"]:
-        sid = s["entity"]
-        sum_with = s.get("sum_with")
-
-        if sum_with:
-            # Somme des valeurs absolues (ex. production solaire négative + onduleur)
-            v1 = num(sid)
-            v2 = num(sum_with)
-            if v1 is None and v2 is None:
-                out.append({"entity": sid, "state": "unavailable", "unit": "", "attrs": {}})
-                continue
-            total = (abs(v1) if v1 is not None else 0) + (abs(v2) if v2 is not None else 0)
-            unit = by_id.get(sid, {}).get("attributes", {}).get("unit_of_measurement", "") or "W"
-            out.append({
-                "entity": sid,
-                "state": str(total),
-                "unit": unit,
-                "attrs": {"friendly_name": s.get("label", sid), "is_sum": True},
-            })
-            continue
-
-        e = by_id.get(sid)
-        if e is None:
-            out.append({"entity": sid, "state": "unavailable", "unit": "", "attrs": {}})
-            continue
-        attrs = e.get("attributes", {})
-        out.append({
+    if sum_with:
+        v1 = num(sid)
+        v2 = num(sum_with)
+        if v1 is None and v2 is None:
+            return {"entity": sid, "state": "unavailable", "unit": "", "attrs": {}}
+        total = (abs(v1) if v1 is not None else 0) + (abs(v2) if v2 is not None else 0)
+        unit = by_id.get(sid, {}).get("unit", "") or "W"
+        return {
             "entity": sid,
-            "state": e.get("state"),
+            "state": str(total),
+            "unit": unit,
+            "attrs": {"friendly_name": s.get("label", sid), "is_sum": True},
+        }
+
+    e = by_id.get(sid)
+    if e is None:
+        return {"entity": sid, "state": "unavailable", "unit": "", "attrs": {}}
+    attrs = e.get("attrs", {})
+    return {
+        "entity": sid,
+        "state": e.get("state"),
+        "unit": e.get("unit", ""),
+        "attrs": attrs,
+    }
+
+
+def get_status() -> dict:
+    """Renvoie l'état en direct de chaque capteur configuré.
+
+    Utilise le cache temps réel (WebSocket) s'il est chaud, sinon bascule
+    sur un fetch REST (fallback au démarrage / si le WS est down).
+    """
+    with STATE_CACHE_LOCK:
+        cache_hot = len(STATE_CACHE) >= len(_tracked_ids()) * 0.5
+    if cache_hot:
+        by_id = dict(STATE_CACHE)
+        out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
+        return {"house_name": LAYOUT["house_name"], "sensors": out}
+
+    # Fallback REST
+    entity_ids = _tracked_ids()
+    try:
+        states = fetch_ha("/api/states")
+    except Exception as e:
+        return {"error": str(e), "sensors": []}
+    by_id = {}
+    for st in states:
+        eid = st.get("entity_id", "")
+        attrs = st.get("attributes", {})
+        by_id[eid] = {
+            "state": st.get("state"),
             "unit": attrs.get("unit_of_measurement", ""),
             "attrs": {
-                "friendly_name": attrs.get("friendly_name", sid),
+                "friendly_name": attrs.get("friendly_name", eid),
                 "temperature": attrs.get("temperature"),
                 "current_temperature": attrs.get("current_temperature"),
                 "humidity": attrs.get("humidity"),
@@ -136,8 +163,82 @@ def get_status() -> dict:
                 "hvac_action": attrs.get("hvac_action"),
                 "hvac_mode": attrs.get("hvac_mode"),
             },
-        })
+        }
+    with STATE_CACHE_LOCK:
+        STATE_CACHE.update(by_id)
+    out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
     return {"house_name": LAYOUT["house_name"], "sensors": out}
+
+
+def _sse_broadcast(obj: dict):
+    payload = "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
+    with SSE_LOCK:
+        for q in list(SSE_CLIENTS):
+            try:
+                q.put_nowait(payload)
+            except Exception:
+                SSE_CLIENTS.discard(q)
+
+
+def _ws_ha_loop():
+    """Thread : s'abonne aux state_changed de HA via WebSocket et met à jour le cache."""
+    from ha_ws import Ws  # client websocket minimal, même dossier
+
+    host = HA_URL.replace("http://", "").split(":")[0]
+    port = int(HA_URL.split(":")[-1].rstrip("/"))
+    while True:
+        try:
+            ws = Ws(host, port, "/api/websocket")
+            # Auth
+            while True:
+                m = ws.recv()
+                if m and m.get("type") == "auth_required":
+                    ws.send({"type": "auth", "access_token": HA_TOKEN})
+                elif m and m.get("type") == "auth_ok":
+                    break
+            ws.send({"id": 1, "type": "subscribe_events", "event_type": "state_changed"})
+            print("🟢 WebSocket HA connecté (temps réel)")
+            tracked = _tracked_ids()
+            while True:
+                m = ws.recv()
+                if not m or m.get("type") != "event":
+                    continue
+                ev = m.get("event", {})
+                if ev.get("event_type") != "state_changed":
+                    continue
+                data = ev.get("data", {})
+                eid = data.get("entity_id", "")
+                if eid not in tracked:
+                    continue
+                ns = data.get("new_state") or {}
+                attrs = ns.get("attributes", {})
+                entry = {
+                    "state": ns.get("state"),
+                    "unit": attrs.get("unit_of_measurement", ""),
+                    "attrs": {
+                        "friendly_name": attrs.get("friendly_name", eid),
+                        "temperature": attrs.get("temperature"),
+                        "current_temperature": attrs.get("current_temperature"),
+                        "humidity": attrs.get("humidity"),
+                        "battery_level": attrs.get("battery_level"),
+                        "hvac_action": attrs.get("hvac_action"),
+                        "hvac_mode": attrs.get("hvac_mode"),
+                    },
+                }
+                with STATE_CACHE_LOCK:
+                    STATE_CACHE[eid] = entry
+                # Recalcule les capteurs du layout concernés (y compris sum_with)
+                updates = []
+                with STATE_CACHE_LOCK:
+                    by_id = dict(STATE_CACHE)
+                for s in LAYOUT["sensors"]:
+                    if s["entity"] == eid or s.get("sum_with") == eid:
+                        updates.append(_status_entry(s, by_id))
+                for u in updates:
+                    _sse_broadcast({"type": "update", **u})
+        except Exception as e:
+            print(f"⚠️ WebSocket HA: {e} — reconnexion dans 5 s")
+            time.sleep(5)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -159,6 +260,37 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def _handle_sse(self):
+        """Server-Sent Events : snapshot initial puis mises à jour temps réel."""
+        q = queue.Queue()
+        with SSE_LOCK:
+            SSE_CLIENTS.add(q)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            # Snapshot initial
+            snap = json.dumps({"type": "snapshot", **get_status()}, ensure_ascii=False)
+            self.wfile.write(f"data: {snap}\n\n".encode("utf-8"))
+            self.wfile.flush()
+            while True:
+                try:
+                    payload = q.get(timeout=15)
+                    self.wfile.write(payload.encode("utf-8"))
+                    self.wfile.flush()
+                except queue.Empty:
+                    # keepalive
+                    self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            with SSE_LOCK:
+                SSE_CLIENTS.discard(q)
 
     def do_OPTIONS(self):
         self._send_cors_ok()
@@ -193,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(get_entities(q), ensure_ascii=False))
         if path == "/api/status":
             return self._send(200, json.dumps(get_status(), ensure_ascii=False))
+        if path == "/api/events":
+            return self._handle_sse()
         if path == "/api/history":
             from urllib.parse import parse_qs
             q = parse_qs(urlparse(self.path).query)
@@ -298,7 +432,12 @@ def save_layout(new_layout: dict) -> dict:
 
 def main():
     print(f"🏠 Maison 3D → http://{HOST}:{PORT}")
-    HTTPServer((HOST, PORT), Handler).serve_forever()
+    # Thread WebSocket HA (temps réel)
+    threading.Thread(target=_ws_ha_loop, daemon=True).start()
+    # Serveur threadé : indispensable pour les connexions SSE longues
+    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    httpd.daemon_threads = True
+    httpd.serve_forever()
 
 
 if __name__ == "__main__":
