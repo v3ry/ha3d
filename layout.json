@@ -372,6 +372,21 @@
    ]
   }
  ],
+ "doors": [
+   { "id": "porte_entree", "name": "Porte d'entrée", "room": "salon", "rotY": 0, "fixed": 20, "t": 2.25, "width": 0.95, "height": 2.1, "hinge": "a0", "openSign": 1, "entity": "binary_sensor.ewelink_ds01_ouverture_contact" },
+   { "id": "porte_garage", "name": "Porte garage", "room": "garage", "rotY": 0, "fixed": 0, "t": 1.8, "width": 2.4, "height": 2.3, "hinge": "a0", "openSign": 1, "noPanel": true },
+   { "id": "garage_chambre", "name": "Garage → Chambre", "room": "garage", "rotY": 1.5708, "fixed": 4.5, "t": 3.0, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "garage_buanderie", "name": "Garage → Buanderie", "room": "garage", "rotY": 0, "fixed": 10, "t": 2.25, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "buanderie_salon", "name": "Buanderie → Salon", "room": "buanderie", "rotY": 0, "fixed": 14, "t": 2.25, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": 1 },
+   { "id": "chambre_bm", "name": "Chambre → Bureau Marie", "room": "chambre", "rotY": 0, "fixed": 5, "t": 6.7, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "bm_plante", "name": "Bureau Marie → Plante", "room": "bureau_marie", "rotY": 0, "fixed": 10, "t": 6.7, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "plante_bureau", "name": "Plante → Bureau", "room": "piece_plante", "rotY": 0, "fixed": 13, "t": 6.7, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "bureau_sdb", "name": "Bureau → SDB", "room": "bureau", "rotY": 0, "fixed": 16, "t": 6.7, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "sdb_cuisine", "name": "SDB → Cuisine", "room": "sdb", "rotY": 0, "fixed": 18, "t": 6.7, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "buanderie_plante", "name": "Buanderie → Plante", "room": "buanderie", "rotY": 1.5708, "fixed": 4.5, "t": 11.8, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "salon_bureau", "name": "Salon → Bureau", "room": "salon", "rotY": 1.5708, "fixed": 4.5, "t": 15.2, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 },
+   { "id": "salon_cuisine", "name": "Salon → Cuisine", "room": "salon", "rotY": 1.5708, "fixed": 4.5, "t": 19.2, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": -1 }
+ ],
  "default_camera": {
   "pos": [
    -12.56,
