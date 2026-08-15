@@ -1,0 +1,387 @@
+{
+ "house_name": "Maison — L'Arbresle (plain-pied, 20 m)",
+ "levels": [
+  {
+   "name": "Rez-de-chaussée",
+   "y_floor": 0,
+   "height": 2.7,
+   "rooms": [
+    {
+     "id": "garage",
+     "name": "Garage",
+     "color": "#8d99ae",
+     "x": 0,
+     "z": 0,
+     "w": 4.5,
+     "d": 10
+    },
+    {
+     "id": "chambre",
+     "name": "Chambre",
+     "color": "#e76f51",
+     "x": 4.5,
+     "z": 0,
+     "w": 4.5,
+     "d": 5
+    },
+    {
+     "id": "bureau_marie",
+     "name": "Bureau Marie",
+     "color": "#b5a8f5",
+     "x": 4.5,
+     "z": 5,
+     "w": 4.5,
+     "d": 5
+    },
+    {
+     "id": "buanderie",
+     "name": "Buanderie",
+     "color": "#a8dadc",
+     "x": 0,
+     "z": 10,
+     "w": 4.5,
+     "d": 4
+    },
+    {
+     "id": "piece_plante",
+     "name": "Plante",
+     "color": "#2a9d8f",
+     "x": 4.5,
+     "z": 10,
+     "w": 4.5,
+     "d": 3
+    },
+    {
+     "id": "bureau",
+     "name": "Bureau",
+     "color": "#b5a8f5",
+     "x": 4.5,
+     "z": 13,
+     "w": 4.5,
+     "d": 3
+    },
+    {
+     "id": "sdb",
+     "name": "SDB",
+     "color": "#84c5f4",
+     "x": 4.5,
+     "z": 16,
+     "w": 4.5,
+     "d": 2
+    },
+    {
+     "id": "cuisine",
+     "name": "Cuisine",
+     "color": "#e9c46a",
+     "x": 4.5,
+     "z": 18,
+     "w": 4.5,
+     "d": 2
+    },
+    {
+     "id": "salon",
+     "name": "Salon",
+     "color": "#f4a261",
+     "x": 0,
+     "z": 14,
+     "w": 4.5,
+     "d": 6
+    }
+   ]
+  }
+ ],
+ "outdoor": {
+  "label": "Extérieur",
+  "color": "#2a9d8f"
+ },
+ "sensors": [
+  {
+   "entity": "sensor.capteur_temp_hum_salon_temperature",
+   "room": "salon",
+   "label": "Salon",
+   "icon": "temp",
+   "pos": [
+    1.46,
+    1.5,
+    18.33
+   ]
+  },
+  {
+   "entity": "sensor.capteur_temp_hum_salon_humidity",
+   "room": "salon",
+   "label": "Humidité",
+   "icon": "hum",
+   "pos": [
+    1.56,
+    1.37,
+    16.37
+   ]
+  },
+  {
+   "entity": "climate.airco_salon",
+   "room": "salon",
+   "label": "Clim",
+   "icon": "ac",
+   "pos": [
+    2.77,
+    1.27,
+    15.1
+   ]
+  },
+  {
+   "entity": "light.yeelight_color_0x498391f",
+   "room": "salon",
+   "label": "Lumière",
+   "icon": "light",
+   "pos": [
+    3.42,
+    2.16,
+    15.71
+   ]
+  },
+  {
+   "entity": "sensor.prise_multiprise_tv_power",
+   "room": "salon",
+   "label": "TV",
+   "icon": "power",
+   "pos": [
+    -4.21,
+    1.41,
+    25.31
+   ]
+  },
+  {
+   "entity": "switch.prise_multiprise_chemine_outlet",
+   "room": "salon",
+   "label": "Lumière led salon",
+   "icon": "light",
+   "pos": [
+    0.53,
+    1.64,
+    19.38
+   ]
+  },
+  {
+   "entity": "sensor.smart_plug_2312183487534851080e48e1e9e6c0c2_power",
+   "room": "cuisine",
+   "label": "Frigo",
+   "icon": "power",
+   "pos": [
+    6.75,
+    1.5,
+    19.12
+   ]
+  },
+  {
+   "entity": "climate.air_conditioner_2",
+   "room": "bureau_marie",
+   "label": "Clim",
+   "icon": "ac",
+   "pos": [
+    8.8,
+    1.5,
+    7.37
+   ]
+  },
+  {
+   "entity": "light.yeelight_color_0x35ed0ca",
+   "room": "bureau",
+   "label": "Lumière",
+   "icon": "light",
+   "pos": [
+    6.89,
+    1.5,
+    13.38
+   ]
+  },
+  {
+   "entity": "sensor.smart_plug_2212209667727651080d48e1e9b583a1_power",
+   "room": "bureau",
+   "label": "Multiprise",
+   "icon": "power",
+   "pos": [
+    4.94,
+    1.5,
+    13.5
+   ]
+  },
+  {
+   "entity": "climate.airco_bureau",
+   "room": "bureau",
+   "label": "Clim",
+   "icon": "ac",
+   "pos": [
+    8.66,
+    1.5,
+    14.4
+   ]
+  },
+  {
+   "entity": "sensor.airco_bureau_indoor",
+   "room": "bureau",
+   "label": "Température",
+   "icon": "temp",
+   "pos": [
+    6.03,
+    1.5,
+    15.2
+   ]
+  },
+  {
+   "entity": "binary_sensor.ouverture_garage_contact",
+   "room": "garage",
+   "label": "Porte",
+   "icon": "door",
+   "pos": [
+    -0.06,
+    1.5,
+    8.28
+   ]
+  },
+  {
+   "entity": "light.garage_outlet",
+   "room": "garage",
+   "label": "Lumière",
+   "icon": "light",
+   "pos": [
+    1.99,
+    1.5,
+    7.48
+   ]
+  },
+  {
+   "entity": "sensor.billon_battery_soc",
+   "room": "garage",
+   "label": "Batterie Billon",
+   "icon": "battery",
+   "pos": [
+    0.82,
+    0.97,
+    14.39
+   ]
+  },
+  {
+   "entity": "sensor.tz3000_lbtpiody_ts0201_temperature_3",
+   "room": "chambre",
+   "label": "Chambre",
+   "icon": "temp",
+   "pos": [
+    6.75,
+    1.5,
+    2.92
+   ]
+  },
+  {
+   "entity": "sensor.ewelink_th01_temperature_2",
+   "room": "buanderie",
+   "label": "Buanderie",
+   "icon": "temp",
+   "pos": [
+    2.25,
+    1.5,
+    12.32
+   ]
+  },
+  {
+   "entity": "light.yeelight_color_0x35ede79",
+   "room": "piece_plante",
+   "label": "Lampe",
+   "icon": "light",
+   "pos": [
+    6.67,
+    1.5,
+    11.64
+   ]
+  },
+  {
+   "entity": "sensor.0xffffb40e06059425_temperature",
+   "room": "outdoor",
+   "label": "Citronnier",
+   "icon": "temp",
+   "pos": [
+    -1.98,
+    0.01,
+    2.12
+   ]
+  },
+  {
+   "entity": "sensor.ilarbr2_temperature",
+   "room": "outdoor",
+   "label": "Extérieur",
+   "icon": "temp",
+   "pos": [
+    -1.97,
+    0.01,
+    4.87
+   ]
+  },
+  {
+   "entity": "sensor.ilarbr2_relative_humidity",
+   "room": "outdoor",
+   "label": "Humidité ext.",
+   "icon": "hum",
+   "pos": [
+    -2.01,
+    -0.02,
+    7.96
+   ]
+  },
+  {
+   "entity": "binary_sensor.porte_laterale_person_detected",
+   "room": "outdoor",
+   "label": "Arrière-cour",
+   "icon": "door",
+   "pos": [
+    -9.52,
+    3.8,
+    21.82
+   ]
+  },
+  {
+   "entity": "sensor.69_weather_alert",
+   "room": "outdoor",
+   "label": "Alerte météo",
+   "icon": "alert",
+   "pos": [
+    -1.99,
+    -0.04,
+    10.99
+   ]
+  },
+  {
+   "entity": "sensor.shellyproem50_34987a680944_em0_power",
+   "room": "outdoor",
+   "label": "Solaire",
+   "icon": "solar",
+   "sum_with": "sensor.wi_fi_solar_grid_micro_inverter_gt_power",
+   "pos": [
+    8.08,
+    3.7,
+    10.04
+   ]
+  },
+  {
+   "entity": "light.yeelight_color_0x3732d53",
+   "room": "salon",
+   "label": "Entrée",
+   "icon": "light",
+   "pos": [
+    3.42,
+    1.5,
+    18.95
+   ]
+  }
+ ],
+ "default_camera": {
+  "pos": [
+   -12.56,
+   15.53,
+   9.91
+  ],
+  "target": [
+   4.54,
+   1.09,
+   10.15
+  ]
+ }
+}

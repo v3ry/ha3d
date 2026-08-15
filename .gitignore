@@ -1,0 +1,26 @@
+# Secrets — ne jamais committer
+.env
+*.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Backups
+ha3d_layout_backups/
+backup_*/
+*.log
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs serveur
+/tmp/*.log
