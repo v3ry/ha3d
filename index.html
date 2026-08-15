@@ -1687,6 +1687,7 @@ function rebuildRoomsVisual() {
   }
   roomMeshes = [];
   buildRooms();
+  buildDoors();  // les portes (cadres + vantaux) doivent suivre les murs édités
 }
 
 // Recalcule meubles / modèles / porte garage de la pièce éditée
@@ -2193,6 +2194,7 @@ function declutterLabels() {
     const v = new THREE.Vector3((it.x / rect.width) * 2 - 1, -(it.y / rect.height) * 2 + 1, 0.5);
     v.unproject(camera);
     const dir = v.sub(camera.position).normalize();
+    if (Math.abs(dir.y) < 1e-4) return;  // caméra à hauteur des étiquettes : on garde la position
     const y = it.e.sprite.position.y;
     const t = (y - camera.position.y) / dir.y;
     it.e.sprite.position.x = camera.position.x + dir.x * t;

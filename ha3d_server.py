@@ -184,8 +184,9 @@ def get_status() -> dict:
                 "hvac_mode": attrs.get("hvac_mode"),
             },
         }
+    # Ne garde que les entités suivies dans le cache (le WS renvoie tous les états HA)
     with STATE_CACHE_LOCK:
-        STATE_CACHE.update(by_id)
+        STATE_CACHE.update({k: v for k, v in by_id.items() if k in entity_ids})
     out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
     return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id)}
 
@@ -204,8 +205,9 @@ def _ws_ha_loop():
     """Thread : s'abonne aux state_changed de HA via WebSocket et met à jour le cache."""
     from ha_ws import Ws  # client websocket minimal, même dossier
 
-    host = HA_URL.replace("http://", "").split(":")[0]
-    port = int(HA_URL.split(":")[-1].rstrip("/"))
+    _u = urlparse(HA_URL)
+    host = _u.hostname or "127.0.0.1"
+    port = _u.port or 8123
     while True:
         try:
             ws = Ws(host, port, "/api/websocket")
