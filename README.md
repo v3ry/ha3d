@@ -5,11 +5,16 @@ Visualiseur 3D interactif (three.js) de la maison avec les capteurs Home Assista
 ## Fonctionnalités
 
 - **Rendu 3D** de la maison (plain-pied, vue isométrique par défaut, OrbitControls)
-- **24+ capteurs** en direct depuis Home Assistant (refresh 15 s)
-- **Lumières 3D** : clic sur une sphère lumière/prise → toggle via l'API HA (halo + ombres portées)
+- **24+ capteurs** en direct depuis Home Assistant (temps réel WebSocket HA → SSE, fallback 60 s)
+- **Icônes 3D par type** : thermomètre (temp), goutte (humidité), flocon (clim), ampoule (lumière, culot métal), éclair (conso), batterie, panneau solaire, porte, alerte — plus de sphères uniformes
+- **Lumières 3D** : clic sur une ampoule/prise → toggle via l'API HA (halo + ombres portées)
+- **Portes réelles** : les murs sont découpés aux ouvertures (`layout.doors`), cadres (jambages + linteau) + vantaux pivotants animés selon l'état HA (on = ouverte, transition douce)
 - **Murs fusionnés** : les murs partagés entre pièces sont dédupliqués (pas de clipping)
+- **Mode jour/nuit** : bouton 🌗 (auto selon l'heure / ☀️ / 🌙), transition douce
+- **Étiquettes anti-chevauchement** : projection écran + séparation itérative (145 px)
 - **Mode debug 🔧** :
   - Drag & drop des entités sur le sol (X/Z) ou en hauteur (Y)
+  - Édition des pièces 🏠 : déplacer / redimensionner à la souris (capteurs, meubles et modèles suivent)
   - Ajout / suppression d'entités HA (recherche en direct)
   - Capture de la caméra par défaut
   - Sauvegarde directe sur le serveur (backup automatique)
@@ -47,6 +52,7 @@ systemctl --user enable --now maison3d
 
 - `rooms` : pièces (x, z, w, d, couleur)
 - `sensors` : entités avec position absolue `pos: [x, y, z]` (mode debug pour les ajuster)
+- `doors` : portes réelles — `rotY`/`fixed` (mur porteur), `t` (centre de l'ouverture), `width`/`height`, `hinge` (bord de charnière a0/a1), `openSign` (±1 sens d'ouverture), `entity` (état HA qui anime la porte, on = ouverte), `noPanel` (ouverture brute sans vantail, ex. porte sectionnelle garage)
 - `default_camera` : position/target de la caméra par défaut
 
 Backups automatiques du layout dans `~/ha3d_layout_backups/` à chaque sauvegarde.

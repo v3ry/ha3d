@@ -79,13 +79,21 @@ SSE_LOCK = threading.Lock()
 
 
 def _tracked_ids() -> set:
-    """Entités suivies en temps réel (capteurs du layout + sum_with)."""
+    """Entités suivies en temps réel (capteurs du layout + sum_with + portes animées)."""
     ids = set()
     for s in LAYOUT["sensors"]:
         ids.add(s["entity"])
         if s.get("sum_with"):
             ids.add(s["sum_with"])
+    for d in LAYOUT.get("doors", []):
+        if d.get("entity"):
+            ids.add(d["entity"])
     return ids
+
+
+def _door_ids() -> set:
+    """Entités des portes animées (état on = ouverte)."""
+    return {d["entity"] for d in LAYOUT.get("doors", []) if d.get("entity")}
 
 
 def _status_entry(s: dict, by_id: dict) -> dict:
@@ -128,6 +136,18 @@ def _status_entry(s: dict, by_id: dict) -> dict:
     }
 
 
+def _doors_status(by_id: dict) -> list:
+    """États des portes animées pour le snapshot SSE."""
+    out = []
+    for d in LAYOUT.get("doors", []):
+        eid = d.get("entity")
+        if not eid:
+            continue
+        e = by_id.get(eid) or {}
+        out.append({"id": d.get("id"), "entity": eid, "state": e.get("state", "unavailable")})
+    return out
+
+
 def get_status() -> dict:
     """Renvoie l'état en direct de chaque capteur configuré.
 
@@ -139,7 +159,7 @@ def get_status() -> dict:
     if cache_hot:
         by_id = dict(STATE_CACHE)
         out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
-        return {"house_name": LAYOUT["house_name"], "sensors": out}
+        return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id)}
 
     # Fallback REST
     entity_ids = _tracked_ids()
@@ -167,7 +187,7 @@ def get_status() -> dict:
     with STATE_CACHE_LOCK:
         STATE_CACHE.update(by_id)
     out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
-    return {"house_name": LAYOUT["house_name"], "sensors": out}
+    return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id)}
 
 
 def _sse_broadcast(obj: dict):
@@ -199,6 +219,7 @@ def _ws_ha_loop():
             ws.send({"id": 1, "type": "subscribe_events", "event_type": "state_changed"})
             print("🟢 WebSocket HA connecté (temps réel)")
             tracked = _tracked_ids()
+            door_ids = _door_ids()
             while True:
                 m = ws.recv()
                 if not m or m.get("type") != "event":
@@ -236,6 +257,11 @@ def _ws_ha_loop():
                         updates.append(_status_entry(s, by_id))
                 for u in updates:
                     _sse_broadcast({"type": "update", **u})
+                # Porte animée : broadcast de l'état même si ce n'est pas un capteur du layout
+                if eid in door_ids:
+                    with STATE_CACHE_LOCK:
+                        _entry = dict(STATE_CACHE.get(eid) or {})
+                    _sse_broadcast({"type": "update", "entity": eid, **_entry})
         except Exception as e:
             print(f"⚠️ WebSocket HA: {e} — reconnexion dans 5 s")
             time.sleep(5)
