@@ -32,6 +32,32 @@ jobs:
           EOF
           node --check /tmp/app.js
 
+      - name: Cohérence i18n (clés FR/EN)
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const vm = require('vm');
+          let src = fs.readFileSync('/tmp/app.js', 'utf-8');
+          const start = src.indexOf('const I18N');
+          const end = src.indexOf('// Sélecteur de langue dans le HUD');
+          Object.defineProperty(global, 'localStorage', { value: { getItem: () => null, setItem: () => {} }, configurable: true });
+          Object.defineProperty(global, 'navigator', { value: { language: 'en-US' }, configurable: true });
+          global.document = { querySelectorAll: () => [] };
+          vm.runInThisContext(src.slice(start, end));
+          const keys = Object.keys(I18N.fr);
+          const missingEn = keys.filter(k => !I18N.en[k]);
+          const used = new Set();
+          const re = /([^.\w])t\('([a-z0-9_.]+)'/g;
+          let m;
+          while ((m = re.exec(src)) !== null) used.add(m[2]);
+          const missingDef = [...used].filter(k => !(I18N.fr[k] && I18N.en[k]));
+          if (missingEn.length || missingDef.length) {
+            console.error('i18n incohérent — FR sans EN:', missingEn, '| utilisées sans définition:', missingDef);
+            process.exit(1);
+          }
+          console.log(`i18n OK: ${keys.length} clés FR/EN, ${used.size} utilisées`);
+          EOF
+
       - name: Validation du layout d'exemple
         run: |
           cp layout.example.json layout.json

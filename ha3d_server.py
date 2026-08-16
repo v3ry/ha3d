@@ -417,7 +417,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(data)
                 return
-            return self._send(404, json.dumps({"error": "modèle introuvable"}))
+            return self._send(404, json.dumps({"error": "model not found"}))
         if path in ("/", "/index.html"):
             html = (BASE_DIR / "index.html").read_text(encoding="utf-8")
             return self._send(200, html, "text/html; charset=utf-8")
@@ -441,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
             entity_id = q.get("entity", [""])[0]
             hours = int(q.get("hours", ["24"])[0])
             if not entity_id:
-                return self._send(400, json.dumps({"error": "entity manquant"}))
+                return self._send(400, json.dumps({"error": "entity missing"}))
             return self._send(200, json.dumps(get_history(entity_id, hours), ensure_ascii=False))
         return self._send(404, json.dumps({"error": "Not found"}))
 
@@ -456,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, json.dumps({"ok": False, "error": "bad json"}))
             entity_id = payload.get("entity_id", "")
             if not entity_id:
-                return self._send(400, json.dumps({"ok": False, "error": "entity_id manquant"}))
+                return self._send(400, json.dumps({"ok": False, "error": "entity_id missing"}))
             return self._send(200, json.dumps(toggle_entity(entity_id), ensure_ascii=False))
         if path == "/api/save-layout":
             length = int(self.headers.get("Content-Length", "0"))
@@ -518,63 +518,63 @@ def get_entities(query: str = "") -> list:
 def validate_layout(new_layout: dict) -> tuple:
     """Valide la structure d'un layout avant sauvegarde. Retourne (ok, erreur)."""
     if not isinstance(new_layout, dict):
-        return False, "layout n'est pas un objet JSON"
+        return False, "layout is not a JSON object"
     if "sensors" not in new_layout or not isinstance(new_layout["sensors"], list):
-        return False, "sensors manquant ou invalide"
+        return False, "sensors missing or invalid"
     levels = new_layout.get("levels")
     if not isinstance(levels, list) or not levels:
-        return False, "levels manquant ou vide"
+        return False, "levels missing or empty"
     level = levels[0]
     rooms = level.get("rooms", []) if isinstance(level, dict) else None
     if not isinstance(rooms, list) or not rooms:
-        return False, "rooms manquant ou vide"
+        return False, "rooms missing or empty"
 
     # Pièces
     seen_ids = set()
     for r in rooms:
         rid = r.get("id") if isinstance(r, dict) else None
         if not rid:
-            return False, "pièce sans id"
+            return False, "room without id"
         if rid in seen_ids:
-            return False, f"id de pièce dupliqué : {rid}"
+            return False, f"duplicate room id: {rid}"
         seen_ids.add(rid)
         pts = r.get("pts")
         if pts:
             if not isinstance(pts, list) or len(pts) < 3:
-                return False, f"pièce « {rid} » : polygone invalide (pts < 3 sommets)"
+                return False, f"room '{rid}': invalid polygon (pts < 3 vertices)"
             for p in pts:
                 if not isinstance(p, (list, tuple)) or len(p) != 2 or not all(
                         isinstance(v, (int, float)) and v == v for v in p):  # rejette NaN
-                    return False, f"pièce « {rid} » : sommet invalide {p}"
+                    return False, f"room '{rid}': invalid vertex {p}"
         else:
             for k in ("x", "z", "w", "d"):
                 v = r.get(k)
                 if not isinstance(v, (int, float)) or v != v:
-                    return False, f"pièce « {rid} » : {k} invalide ({v})"
+                    return False, f"room '{rid}': invalid {k} ({v})"
             if r.get("w", 0) < 0.5 or r.get("d", 0) < 0.5:
-                return False, f"pièce « {rid} » : dimensions trop petites (< 0.5 m)"
+                return False, f"room '{rid}': dimensions too small (< 0.5 m)"
 
     # Portes
     seen_door_ids = set()
     for d in new_layout.get("doors", []):
         did = d.get("id") if isinstance(d, dict) else None
         if did and did in seen_door_ids:
-            return False, f"id de porte dupliqué : {did}"
+            return False, f"duplicate door id: {did}"
         if did:
             seen_door_ids.add(did)
         for k in ("t", "width"):
             v = d.get(k)
             if not isinstance(v, (int, float)) or v != v or v <= 0:
-                return False, f"porte « {did or '?'} » : {k} invalide ({v})"
+                return False, f"door '{did or '?'}': invalid {k} ({v})"
 
     # Capteurs
     seen_sensors = set()
     for s in new_layout["sensors"]:
         e = s.get("entity") if isinstance(s, dict) else None
         if not e:
-            return False, "capteur sans entity"
+            return False, "sensor without entity"
         if e in seen_sensors:
-            return False, f"entité dupliquée : {e}"
+            return False, f"duplicate entity: {e}"
         seen_sensors.add(e)
 
     # Objets
@@ -583,27 +583,27 @@ def validate_layout(new_layout: dict) -> tuple:
     for f in furn:
         fid = f.get("id") if isinstance(f, dict) else None
         if not fid:
-            return False, "objet sans id"
+            return False, "object without id"
         if fid in seen_furn:
-            return False, f"id d'objet dupliqué : {fid}"
+            return False, f"duplicate object id: {fid}"
         seen_furn.add(fid)
 
     # Vues caméra enregistrées
     views = new_layout.get("camera_views", [])
     if not isinstance(views, list):
-        return False, "camera_views doit être une liste"
+        return False, "camera_views must be a list"
     seen_view_names = set()
     for v in views:
         if not isinstance(v, dict):
-            return False, "vue caméra invalide (pas un objet)"
+            return False, "invalid camera view (not an object)"
         for k in ("pos", "target"):
             arr = v.get(k)
             if not isinstance(arr, (list, tuple)) or len(arr) != 3 or not all(
                     isinstance(x, (int, float)) and x == x for x in arr):
-                return False, f"vue « {v.get('name', '?')} » : {k} invalide"
+                return False, f"view '{v.get('name', '?')}': invalid {k}"
         vname = v.get("name")
         if vname and vname in seen_view_names:
-            return False, f"nom de vue dupliqué : {vname}"
+            return False, f"duplicate view name: {vname}"
         if vname:
             seen_view_names.add(vname)
 
@@ -614,7 +614,7 @@ def save_layout(new_layout: dict) -> dict:
     """Sauvegarde le layout (positions entités + caméra) dans layout.json, avec backup."""
     ok, err = validate_layout(new_layout)
     if not ok:
-        return {"ok": False, "error": f"layout invalide : {err}"}
+        return {"ok": False, "error": f"invalid layout: {err}"}
     try:
         # Backup du fichier actuel (répertoire configurable : HA3D_BACKUP_DIR)
         backup_dir = Path(os.environ.get("HA3D_BACKUP_DIR", BASE_DIR.parent / "ha3d_layout_backups"))
