@@ -288,6 +288,7 @@ let doorsGroup = null;   // portes réelles (cadres + vantaux)
 let floorMeshes = [];    // sols par pièce (suivi position/taille)
 let furnitureMeshes = []; // meubles (suivi position après édition pièce)
 let modelObjects = [];   // modèles glTF chargés
+let availableModels = []; // modèles .glb disponibles (fetch /api/models)
 let labelSprites = [];
 let controls, scene, camera, renderer, raycaster, mouse;
 let exploded = false;
@@ -335,6 +336,8 @@ async function init() {
     fetch('/api/status').then(r => r.json())
   ]);
   layout = l;
+  // Liste des modèles 3D disponibles (dossier models/ du serveur)
+  fetch('/api/models').then(r => r.json()).then(d => { availableModels = d.models || []; }).catch(() => { availableModels = []; });
   // Caméra par défaut : le layout (avec default_camera) n'est chargé qu'ici
   if (layout.default_camera) {
     defaultCamera = layout.default_camera;
@@ -2121,7 +2124,11 @@ function openObjectPanel(f) {
   panel.style.display = 'block';
   document.getElementById('dbg-edit-title').textContent = `🛋️ ${f.name || f.id} (${r ? r.name : f.room})`;
   const isModel = f.type === 'model';
+  const modelOpts = '<option value="">🟫 Boîte simple</option>' +
+    availableModels.map(m =>
+      `<option value="${m}" ${isModel && f.model === m ? 'selected' : ''}>🧊 ${m}</option>`).join('');
   document.getElementById('dbg-edit-fields').innerHTML =
+    `<label class="dbg-field">Type<select id="ed-model" onchange="onModelTypeChange()">${modelOpts}</select></label>` +
     editField('Nom', 'ed-name', f.name || f.id) +
     `<label class="dbg-field">Pièce<select id="ed-room">${roomOpts}</select></label>` +
     (isModel
@@ -2385,7 +2392,26 @@ function addObject() {
   rebuildDecorVisual();
   openObjectPanel(f);
   document.getElementById('debug-sel').innerHTML =
-    `🆕 Objet créé au centre de « ${room.name} ». Drag = déplacer.`;
+    `🆕 Objet créé au centre de « ${room.name} ». Choisissez le type (boîte ou modèle 3D), puis drag = déplacer.`;
+}
+
+// Changement de type dans le panneau objet : boîte ⇄ modèle glTF
+function onModelTypeChange() {
+  if (!editSel || editKind !== 'object') return;
+  const f = editSel.f;
+  const sel = document.getElementById('ed-model');
+  const model = sel ? sel.value : '';
+  if (model) {
+    f.type = 'model';
+    f.model = model;
+    if (!f.scale) f.scale = 1;
+    if (!f.rotY) f.rotY = 0;
+  } else {
+    f.type = 'box';
+    delete f.model;
+  }
+  rebuildDecorVisual();
+  openObjectPanel(f);
 }
 
 // --- Drag porte : déplacement le long de son mur (t) ---

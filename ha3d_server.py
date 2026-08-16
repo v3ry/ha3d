@@ -368,6 +368,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, html, "text/html; charset=utf-8")
         if path == "/api/layout":
             return self._send(200, json.dumps(LAYOUT, ensure_ascii=False))
+        if path == "/api/models":
+            # Liste des modèles 3D disponibles (fichiers .glb du dossier models/)
+            models = sorted(p.stem for p in (BASE_DIR / "models").glob("*.glb"))
+            return self._send(200, json.dumps({"models": models}, ensure_ascii=False))
         if path == "/api/entities":
             from urllib.parse import parse_qs
             q = parse_qs(urlparse(self.path).query).get("q", [""])[0]
