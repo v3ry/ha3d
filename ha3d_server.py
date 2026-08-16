@@ -532,6 +532,26 @@ def validate_layout(new_layout: dict) -> tuple:
         if fid in seen_furn:
             return False, f"id d'objet dupliqué : {fid}"
         seen_furn.add(fid)
+
+    # Vues caméra enregistrées
+    views = new_layout.get("camera_views", [])
+    if not isinstance(views, list):
+        return False, "camera_views doit être une liste"
+    seen_view_names = set()
+    for v in views:
+        if not isinstance(v, dict):
+            return False, "vue caméra invalide (pas un objet)"
+        for k in ("pos", "target"):
+            arr = v.get(k)
+            if not isinstance(arr, (list, tuple)) or len(arr) != 3 or not all(
+                    isinstance(x, (int, float)) and x == x for x in arr):
+                return False, f"vue « {v.get('name', '?')} » : {k} invalide"
+        vname = v.get("name")
+        if vname and vname in seen_view_names:
+            return False, f"nom de vue dupliqué : {vname}"
+        if vname:
+            seen_view_names.add(vname)
+
     return True, ""
 
 

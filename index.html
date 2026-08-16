@@ -109,6 +109,12 @@
   }
   #debug-panel #debug-cam-set { background:#30363d; color:#e6edf3; }
   #debug-panel #debug-save { background:#3fb950; color:#0d1117; }
+  #debug-panel .dbg-cam-views { margin-bottom:10px; }
+  #debug-panel .dbg-view-row { display:flex; gap:4px; align-items:center; margin-top:4px; }
+  #debug-panel .dbg-view-go { flex:1; background:#21262d; color:#e6edf3; border:1px solid #30363d; border-radius:4px; padding:4px 8px; text-align:left; cursor:pointer; font-size:12px; }
+  #debug-panel .dbg-view-go:hover { background:#30363d; }
+  #debug-panel .dbg-view-del { background:transparent; border:none; color:#f85149; cursor:pointer; font-size:13px; padding:4px 6px; }
+  #debug-panel .dbg-view-del:hover { color:#ff7b72; }
   #debug-panel .dbg-msg { font-size:11px; color:#3fb950; margin-bottom:8px; min-height:14px; }
   #debug-panel .dbg-sep {
     font-size:11px; font-weight:700; color:#e6edf3; margin:12px 0 6px;
@@ -240,6 +246,11 @@
     <button id="debug-cam-set">📷 Vue = caméra actuelle</button>
     <button id="debug-save">💾 Sauvegarder</button>
   </div>
+  <div class="dbg-sep">🎥 Vues caméra</div>
+  <div class="dbg-cam-views">
+    <button id="debug-view-add">➕ Enregistrer la vue actuelle</button>
+    <div class="dbg-view-list" id="debug-view-list"></div>
+  </div>
   <div class="dbg-msg" id="debug-msg"></div>
   <textarea id="debug-out" readonly spellcheck="false"></textarea>
 
@@ -342,6 +353,7 @@ async function init() {
   if (layout.default_camera) {
     defaultCamera = layout.default_camera;
   }
+  loadCameraViews();
   applyDefaultCamera();
   buildRooms();
   buildDecor();
@@ -1564,6 +1576,7 @@ function bindUI() {
   document.getElementById('dbg-edit-add').onclick = addEditItem;
   document.getElementById('debug-export').onclick = exportDebugPositions;
   document.getElementById('debug-cam-set').onclick = setDefaultCameraFromView;
+  document.getElementById('debug-view-add').onclick = addCameraView;
   document.getElementById('debug-save').onclick = saveLayoutToServer;
   // Gestion des entités
   document.getElementById('debug-search').addEventListener('input', (e) => {
@@ -2552,6 +2565,81 @@ function setDefaultCameraFromView() {
   msg.textContent = `📷 Vue par défaut définie : pos=(${defaultCamera.pos.join(', ')}) target=(${defaultCamera.target.join(', ')}). Cliquez « 💾 Sauvegarder » pour l'écrire sur le serveur.`;
 }
 
+// ---------- Vues caméra enregistrées ----------
+let cameraViews = [];
+
+function loadCameraViews() {
+  cameraViews = Array.isArray(layout.camera_views) ? layout.camera_views : [];
+  renderCameraViews();
+}
+
+function renderCameraViews() {
+  const list = document.getElementById('debug-view-list');
+  if (!list) return;
+  if (!cameraViews.length) {
+    list.innerHTML = '<div class="dbg-hint" style="padding:4px 0">Aucune vue enregistrée. Positionnez la caméra puis « ➕ Enregistrer ».</div>';
+    return;
+  }
+  list.innerHTML = cameraViews.map((v, i) =>
+    `<div class="dbg-view-row" data-i="${i}">
+       <button class="dbg-view-go" title="Aller à cette vue">🎥 ${(v.name || 'Vue ' + (i + 1)).replace(/"/g, '&quot;')}</button>
+       <button class="dbg-view-del" title="Supprimer cette vue">✕</button>
+     </div>`).join('');
+  list.querySelectorAll('.dbg-view-go').forEach(btn => {
+    btn.onclick = () => gotoCameraView(cameraViews[parseInt(btn.parentElement.dataset.i, 10)]);
+  });
+  list.querySelectorAll('.dbg-view-del').forEach(btn => {
+    btn.onclick = () => deleteCameraView(parseInt(btn.parentElement.dataset.i, 10));
+  });
+}
+
+function addCameraView() {
+  const name = prompt('Nom de la vue (ex: Salon, Chambre bébé…) :');
+  if (name === null) return;
+  const r2 = v => Math.round(v * 100) / 100;
+  cameraViews.push({
+    name: name.trim() || 'Vue ' + (cameraViews.length + 1),
+    pos: [r2(camera.position.x), r2(camera.position.y), r2(camera.position.z)],
+    target: [r2(controls.target.x), r2(controls.target.y), r2(controls.target.z)],
+  });
+  renderCameraViews();
+  const msg = document.getElementById('debug-msg');
+  msg.style.color = '#58a6ff';
+  msg.textContent = `🎥 Vue « ${cameraViews[cameraViews.length - 1].name} » enregistrée. 💾 pour écrire sur le serveur.`;
+}
+
+function deleteCameraView(i) {
+  const v = cameraViews[i];
+  if (!v || !confirm(`Supprimer la vue « ${v.name} » ?`)) return;
+  cameraViews.splice(i, 1);
+  renderCameraViews();
+  const msg = document.getElementById('debug-msg');
+  msg.style.color = '#58a6ff';
+  msg.textContent = '🎥 Vue supprimée. 💾 pour écrire sur le serveur.';
+}
+
+// Animation fluide vers une vue (lerp position + target)
+let camAnim = null;
+function gotoCameraView(v) {
+  if (!v) return;
+  const fromPos = camera.position.clone();
+  const fromTgt = controls.target.clone();
+  const toPos = new THREE.Vector3(...v.pos);
+  const toTgt = new THREE.Vector3(...v.target);
+  const t0 = performance.now(), dur = 700;
+  if (camAnim) cancelAnimationFrame(camAnim);
+  const step = now => {
+    const t = Math.min((now - t0) / dur, 1);
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
+    camera.position.lerpVectors(fromPos, toPos, e);
+    controls.target.lerpVectors(fromTgt, toTgt, e);
+    controls.update();
+    if (t < 1) camAnim = requestAnimationFrame(step);
+    else { camAnim = null; setTimeout(declutterLabels, 120); }
+  };
+  camAnim = requestAnimationFrame(step);
+}
+
 async function saveLayoutToServer() {
   const msg = document.getElementById('debug-msg');
   try {
@@ -2571,8 +2659,9 @@ async function saveLayoutToServer() {
       const cfg = newLayout.sensors.find(s => s.entity === e);
       if (cfg) cfg.pos = [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100, Math.round(p.z * 100) / 100];
     });
-    // Caméra par défaut
+    // Caméra par défaut + vues enregistrées
     newLayout.default_camera = defaultCamera;
+    newLayout.camera_views = cameraViews;
     const resp = await fetch('/api/save-layout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
