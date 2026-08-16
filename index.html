@@ -15,6 +15,7 @@
   }
   #hud h1 { font-size:16px; margin-bottom:2px; }
   #hud .sub { font-size:11px; color:#8b949e; margin-bottom:10px; }
+  #sse-indicator { position:absolute; top:10px; right:12px; font-size:15px; cursor:help; filter: drop-shadow(0 0 4px rgba(0,0,0,.6)); }
   .legend { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; font-size:11px; }
   .legend .item { display:flex; align-items:center; gap:6px; }
   .dot { width:10px; height:10px; border-radius:50%; display:inline-block; flex-shrink:0; }
@@ -178,6 +179,7 @@
 <div id="hud">
   <h1>🏠 Maison — L'Arbresle</h1>
   <div class="sub" id="hud-sub">Chargement des capteurs…</div>
+  <div id="sse-indicator" title="Flux temps réel : connexion…">🟢</div>
   <div class="legend" id="legend"></div>
   <div id="controls">
     <button id="btn-labels" class="active">Étiquettes</button>
@@ -1663,6 +1665,7 @@ function bindDebugDrag() {
     const entry = sensorMeshes.find(m => m.sensor === s);
     if (!entry) return;
     evt.preventDefault();
+    pushUndo();  // positions des capteurs éditées
     debugDrag = {
       entry,
       plane: debugAxis === 'y' ? debugVerticalPlane(entry.mesh.position) : debugPlaneAt(entry.mesh.position.y),
@@ -1800,6 +1803,7 @@ function startRoomEdit(evt) {
   const roomId = hitObj.userData.roomId;
   const room = layout.levels.flatMap(l => l.rooms).find(r => r.id === roomId);
   if (!room) return;
+  pushUndo();
   evt.preventDefault();
   const startHit = rayToPlane(evt, debugPlaneAt(0.1));
   if (!startHit) return;
@@ -1943,6 +1947,58 @@ let editKind = null;      // 'door' | 'object' | null
 let editSel = null;       // { door } ou { f }
 let editDrag = null;      // drag en cours (porte ou objet)
 
+// ============ UNDO / REDO (snapshots du layout) ============
+let undoStack = [];
+let redoStack = [];
+
+function pushUndo() {
+  undoStack.push(JSON.stringify(layout));
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack = [];
+}
+
+function undoLayout() {
+  if (!undoStack.length) { showFlash('↩️ Rien à annuler'); return; }
+  redoStack.push(JSON.stringify(layout));
+  layout = JSON.parse(undoStack.pop());
+  restoreLayout();
+}
+
+function redoLayout() {
+  if (!redoStack.length) { showFlash('↪️ Rien à refaire'); return; }
+  undoStack.push(JSON.stringify(layout));
+  layout = JSON.parse(redoStack.pop());
+  restoreLayout();
+}
+
+// Reconstruit tout le visuel depuis le layout restauré
+function restoreLayout() {
+  closeEditPanel();
+  editDrag = null;
+  debugRoomEdit = null;
+  debugDrag = null;
+  controls.enabled = true;
+  renderer.domElement.classList.remove('dragging');
+  rebuildRoomsVisual();   // murs + portes (+ wallSegments)
+  rebuildDecorVisual();   // sols + meubles + modèles
+  rebuildSensors();       // capteurs depuis layout.sensors
+  rebuildVertexHelpers();
+  const msg = document.getElementById('debug-msg');
+  msg.style.color = '#58a6ff';
+  msg.textContent = '↩️ Layout restauré (undo/redo). Cliquez 💾 pour sauvegarder.';
+}
+
+// Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (hors champs de saisie)
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z') { e.preventDefault(); if (e.shiftKey) redoLayout(); else undoLayout(); }
+  else if (k === 'y') { e.preventDefault(); redoLayout(); }
+});
+
 function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 
 function closeEditPanel() {
@@ -2010,6 +2066,7 @@ function openDoorPanel(door) {
   panel.style.display = 'block';
   document.getElementById('dbg-edit-title').textContent = `🚪 ${door.name || door.id} (${r ? r.name : door.room})`;
   document.getElementById('dbg-edit-fields').innerHTML =
+    editField('Nom', 'ed-name', door.name || door.id) +
     editField('Largeur (m)', 'ed-width', door.width, 'number') +
     editField('Hauteur (m)', 'ed-height', door.height, 'number') +
     `<label class="dbg-field">Charnière<select id="ed-hinge">
@@ -2045,6 +2102,7 @@ function openObjectPanel(f) {
   document.getElementById('dbg-edit-title').textContent = `🛋️ ${f.name || f.id} (${r ? r.name : f.room})`;
   const isModel = f.type === 'model';
   document.getElementById('dbg-edit-fields').innerHTML =
+    editField('Nom', 'ed-name', f.name || f.id) +
     `<label class="dbg-field">Pièce<select id="ed-room">${roomOpts}</select></label>` +
     (isModel
       ? editField('Rotation Y (rad)', 'ed-roty', f.rotY, 'number') + editField('Échelle', 'ed-scale', f.scale, 'number')
@@ -2117,6 +2175,7 @@ function openRoomPanel(room) {
 }
 
 function convertRoomToPolygon(room) {
+  pushUndo();
   room.pts = [
     [room.x, room.z],
     [room.x + room.w, room.z],
@@ -2132,6 +2191,7 @@ function convertRoomToPolygon(room) {
 }
 
 function addRoomVertex(room) {
+  pushUndo();
   const mid = [(room.pts[0][0] + room.pts[1][0]) / 2, (room.pts[0][1] + room.pts[1][1]) / 2];
   room.pts.splice(1, 0, mid);
   rebuildRoomsVisual();
@@ -2154,9 +2214,12 @@ function addEditItem() {
 
 function applyEdit() {
   if (!editSel) return;
+  pushUndo();
   const msg = document.getElementById('debug-msg');
   if (editKind === 'door') {
     const door = editSel.door;
+    const dn = document.getElementById('ed-name').value.trim();
+    if (dn) door.name = dn;
     door.width = clamp(parseFloat(document.getElementById('ed-width').value) || 0.9, 0.5, 4);
     door.height = clamp(parseFloat(document.getElementById('ed-height').value) || 2.1, 1.5, 4);
     door.hinge = document.getElementById('ed-hinge').value;
@@ -2168,6 +2231,8 @@ function applyEdit() {
     msg.textContent = `💾 Porte « ${door.name || door.id} » mise à jour. Cliquez 💾 Sauvegarder pour écrire sur le serveur.`;
   } else if (editKind === 'object') {
     const f = editSel.f;
+    const on = document.getElementById('ed-name').value.trim();
+    if (on) f.name = on;
     f.room = document.getElementById('ed-room').value;
     if (f.type === 'model') {
       f.rotY = parseFloat(document.getElementById('ed-roty').value) || 0;
@@ -2198,6 +2263,7 @@ function applyEdit() {
 function deleteEdit() {
   if (!editSel) return;
   if (!confirm('Supprimer cet élément du layout ?')) return;
+  pushUndo();
   if (editKind === 'door') {
     layout.doors = (layout.doors || []).filter(d => d.id !== editSel.door.id);
     buildDoors();
@@ -2221,6 +2287,7 @@ function addDoor() {
     width: 0.9, height: 2.1, hinge: 'a0', openSign: 1, entity: '',
   };
   layout.doors = layout.doors || [];
+  pushUndo();
   layout.doors.push(door);
   buildDoors();
   openDoorPanel(door);
@@ -2236,6 +2303,7 @@ function addObject() {
     id: 'obj_' + Date.now().toString(36), type: 'box', name: 'Nouvel objet',
     room: room.id, x: 0.5, z: 0.5, w: 1.0, d: 0.6, h: 0.8, c: '#8b949e',
   };
+  pushUndo();
   lvl.furniture.push(f);
   rebuildDecorVisual();
   openObjectPanel(f);
@@ -2248,6 +2316,7 @@ function startDoorDrag(evt, door) {
   evt.preventDefault();
   const hit = rayToPlane(evt, debugPlaneAt(0.1));
   if (!hit) return;
+  pushUndo();
   editDrag = { kind: 'door', door, room: roomOf(door.room), start: { x: hit.x, z: hit.z }, moved: false };
   controls.enabled = false;
   renderer.domElement.classList.add('dragging');
@@ -2308,6 +2377,7 @@ function startObjectDrag(evt, f) {
   evt.preventDefault();
   const hit = rayToPlane(evt, debugPlaneAt(0.1));
   if (!hit) return;
+  pushUndo();
   const entry = furnitureMeshes.find(fm => fm.f === f);
   const mo = modelObjects.find(m => m.f === f);
   const y = entry ? entry.mesh.position.y : (mo ? mo.obj.position.y : 0.4);
@@ -2703,7 +2773,7 @@ function applyStatusData(data) {
   updateAlerts(sensors);
   const nb = data.sensors.filter(s => s.state && s.state !== 'unavailable').length;
   document.getElementById('statusbar').textContent =
-    `${sseConnected ? '🔴 Temps réel' : 'Mise à jour'} ${new Date().toLocaleTimeString('fr-FR')} · ${nb}/${data.sensors.length} capteurs OK`;
+    `${sseConnected ? 'Temps réel' : 'Mise à jour'} ${new Date().toLocaleTimeString('fr-FR')} · ${nb}/${data.sensors.length} capteurs OK`;
   // Détail ouvert : refresh
   const dt = document.getElementById('detail');
   if (dt.style.display === 'block') {
@@ -2729,12 +2799,23 @@ async function refreshStatus() {
 let sseConnected = false;
 let sseSource = null;
 
+// Pastille d'état : 🟢 connecté · 🟠 reconnexion · 🔴 indisponible (fallback 60 s)
+function updateSSEIndicator() {
+  const el = document.getElementById('sse-indicator');
+  if (!el) return;
+  if (sseConnected) { el.textContent = '🟢'; el.title = 'Flux temps réel : connecté'; }
+  else if (window._sseFailed) { el.textContent = '🔴'; el.title = 'Temps réel indisponible — fallback 60 s'; }
+  else { el.textContent = '🟠'; el.title = 'Flux temps réel : reconnexion…'; }
+}
+
 function connectSSE() {
-  if (!window.EventSource) return;
+  window._sseFailed = false;
+  if (!window.EventSource) { window._sseFailed = true; updateSSEIndicator(); return; }
   try {
     sseSource = new EventSource('/api/events');
     sseSource.onopen = () => {
       sseConnected = true;
+      updateSSEIndicator();
       document.getElementById('statusbar').textContent = '🔄 Connexion temps réel…';
     };
     sseSource.onmessage = (evt) => {
@@ -2762,9 +2843,13 @@ function connectSSE() {
     };
     sseSource.onerror = () => {
       sseConnected = false;
+      updateSSEIndicator();
       // EventSource se reconnecte automatiquement ; le polling 60 s reprend (fallback)
     };
-  } catch (e) { /* pas de SSE */ }
+  } catch (e) {
+    window._sseFailed = true;
+    updateSSEIndicator();
+  }
 }
 
 // ============ LOOP ============

@@ -14,7 +14,9 @@ Visualiseur 3D interactif (three.js) de la maison avec les capteurs Home Assista
 - **Étiquettes anti-chevauchement** : projection écran + séparation itérative (145 px)
 - **Mode debug 🔧** :
   - Drag & drop des entités sur le sol (X/Z) ou en hauteur (Y)
-  - Édition des pièces 🏠 : déplacer / redimensionner à la souris — au déplacement, capteurs, meubles et modèles suivent ; au redimensionnement, les capteurs gardent leur position absolue
+  - Édition des pièces 🏠 : déplacer / redimensionner à la souris — au déplacement, capteurs, meubles et modèles suivent ; au redimensionnement, les capteurs gardent leur position absolue. Pièces polygonales (sommets libres 🟡) possibles
+  - Édition des portes 🚪 et objets 🛋️ : clic = panneau (nom, dimensions, capteur associé…), drag = déplacer (les portes s'accrochent à n'importe quel mur), ➕ ajouter, 🗑️ supprimer
+  - **Undo/Redo : Ctrl+Z / Ctrl+Shift+Z** (toutes les éditions, jusqu'à 50 étapes)
   - Ajout / suppression d'entités HA (recherche en direct)
   - Capture de la caméra par défaut
   - Sauvegarde directe sur le serveur (backup automatique)
