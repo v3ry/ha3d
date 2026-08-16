@@ -76,8 +76,14 @@ class TestStatusEntry(unittest.TestCase):
         self.assertEqual(out["unit"], "°C")
 
     def test_entite_absente(self):
-        out = h._status_entry({"entity": "sensor.inconnu"}, {})
-        self.assertEqual(out["state"], "unavailable")
+        # Hors mode démo : entité inconnue → "unavailable"
+        old_demo = h.IS_DEMO
+        h.IS_DEMO = False
+        try:
+            out = h._status_entry({"entity": "sensor.inconnu"}, {})
+            self.assertEqual(out["state"], "unavailable")
+        finally:
+            h.IS_DEMO = old_demo
 
 
 class TestValidateLayout(unittest.TestCase):
@@ -157,6 +163,40 @@ class TestValidateLayout(unittest.TestCase):
         l = self._valid()
         l["levels"][0]["furniture"] = [{"type": "box", "name": "x"}]
         self.assertFalse(h.validate_layout(l)[0])
+
+
+class TestDemoSimulation(unittest.TestCase):
+    def test_temperature_simulee(self):
+        state, unit = h._demo_sensor_state({"entity": "sensor.demo_temperature_salon"})
+        self.assertEqual(unit, "°C")
+        self.assertGreaterEqual(float(state), 19)
+        self.assertLessEqual(float(state), 27)
+
+    def test_humidite_simulee(self):
+        state, unit = h._demo_sensor_state({"entity": "sensor.demo_humidity_salon"})
+        self.assertEqual(unit, "%")
+        self.assertGreaterEqual(int(state), 40)
+        self.assertLessEqual(int(state), 70)
+
+    def test_light_simulee(self):
+        state, _ = h._demo_sensor_state({"entity": "light.demo_lamp"})
+        self.assertIn(state, ("on", "off"))
+
+    def test_power_simulee(self):
+        state, unit = h._demo_sensor_state({"entity": "sensor.demo_power"})
+        self.assertEqual(unit, "W")
+        self.assertGreater(int(state), 0)
+
+    def test_status_demo_court_circuit(self):
+        # IS_DEMO → les capteurs inconnus reçoivent une valeur simulée, pas "unavailable"
+        old_demo = h.IS_DEMO
+        h.IS_DEMO = True
+        try:
+            e = h._status_entry({"entity": "sensor.demo_x"}, {})
+            self.assertEqual(e["state"], "21.5")
+            self.assertTrue(e["attrs"].get("demo"))
+        finally:
+            h.IS_DEMO = old_demo
 
 
 if __name__ == "__main__":

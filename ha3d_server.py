@@ -75,22 +75,47 @@ def get_history(entity_id: str, hours: int = 24) -> dict:
 # Si layout.json est absent (installation fraîche), génère une maison de démo
 def _demo_layout():
     return {
-        "house_name": "Ma maison (démo)",
+        "house_name": "Ha3D — Demo house",
         "levels": [{
             "name": "rdc", "y_floor": 0, "height": 2.6, "rooms": [
-                {"id": "salon", "name": "Salon", "x": 0, "z": 0, "w": 5, "d": 4, "color": "#f0e68c"},
-                {"id": "cuisine", "name": "Cuisine", "x": 5, "z": 0, "w": 3, "d": 4, "color": "#98fb98"},
-                {"id": "chambre", "name": "Chambre", "x": 0, "z": 4, "w": 4, "d": 3, "color": "#87ceeb"},
+                {"id": "salon", "name": "Living room", "x": 0, "z": 0, "w": 6, "d": 5, "color": "#f0e68c"},
+                {"id": "cuisine", "name": "Kitchen", "x": 6, "z": 0, "w": 4, "d": 5, "color": "#98fb98"},
+                {"id": "chambre", "name": "Bedroom", "x": 0, "z": 5, "w": 5, "d": 4, "color": "#87ceeb"},
+                {"id": "sdb", "name": "Bathroom", "x": 5, "z": 5, "w": 3, "d": 4, "color": "#d8bfd8"},
+                {"id": "bureau", "name": "Office", "x": 8, "z": 5, "w": 4, "d": 4, "color": "#ffcc99"},
             ],
             "furniture": [
-                {"id": "demo_canap", "type": "box", "name": "Canapé", "room": "salon", "x": 0.3, "z": 0.5, "w": 2.0, "d": 0.8, "h": 0.8, "c": "#c9a227"},
-                {"id": "demo_table", "type": "box", "name": "Table", "room": "cuisine", "x": 0.5, "z": 0.5, "w": 1.2, "d": 0.8, "h": 0.75, "c": "#8b5a2b"},
-                {"id": "demo_lit", "type": "box", "name": "Lit", "room": "chambre", "x": 0.3, "z": 0.4, "w": 1.6, "d": 2.0, "h": 0.5, "c": "#6a9ec4"},
+                {"id": "demo_canap", "type": "model", "name": "Sofa", "model": "Canape", "room": "salon", "x": 0.25, "z": 0.55, "scale": 1.1},
+                {"id": "demo_tv", "type": "model", "name": "TV", "model": "TV", "room": "salon", "x": 0.82, "z": 0.5, "scale": 1.0, "rotY": 3.14},
+                {"id": "demo_tablebasse", "type": "model", "name": "Coffee table", "model": "TableBasse", "room": "salon", "x": 0.5, "z": 0.62, "scale": 1.0},
+                {"id": "demo_table", "type": "model", "name": "Table", "model": "TableManger", "room": "cuisine", "x": 0.5, "z": 0.5, "scale": 1.0},
+                {"id": "demo_chaise1", "type": "model", "name": "Chair", "model": "Chaise", "room": "cuisine", "x": 0.5, "z": 0.25, "scale": 0.9},
+                {"id": "demo_chaise2", "type": "model", "name": "Chair", "model": "Chaise", "room": "cuisine", "x": 0.5, "z": 0.75, "scale": 0.9, "rotY": 3.14},
+                {"id": "demo_frigo", "type": "model", "name": "Fridge", "model": "Frigo", "room": "cuisine", "x": 0.88, "z": 0.5, "scale": 1.0},
+                {"id": "demo_lit", "type": "model", "name": "Bed", "model": "Lit", "room": "chambre", "x": 0.25, "z": 0.5, "scale": 1.0},
+                {"id": "demo_armoire", "type": "model", "name": "Wardrobe", "model": "Armoire", "room": "chambre", "x": 0.85, "z": 0.5, "scale": 1.0},
+                {"id": "demo_baignoire", "type": "model", "name": "Bathtub", "model": "Baignoire", "room": "sdb", "x": 0.3, "z": 0.5, "scale": 1.0},
+                {"id": "demo_wc", "type": "model", "name": "Toilet", "model": "WC", "room": "sdb", "x": 0.75, "z": 0.5, "scale": 1.0},
+                {"id": "demo_bureau", "type": "model", "name": "Desk", "model": "Bureau", "room": "bureau", "x": 0.5, "z": 0.35, "scale": 1.0},
+                {"id": "demo_chaisebureau", "type": "model", "name": "Office chair", "model": "ChaiseBureau", "room": "bureau", "x": 0.5, "z": 0.68, "scale": 1.0, "rotY": 3.14},
+                {"id": "demo_plante", "type": "model", "name": "Plant", "model": "Plante", "room": "salon", "x": 0.9, "z": 0.15, "scale": 1.0},
+                {"id": "demo_lampadaire", "type": "model", "name": "Floor lamp", "model": "Lampadaire", "room": "salon", "x": 0.1, "z": 0.15, "scale": 1.0},
             ],
         }],
-        "sensors": [],
-        "doors": [],
-        "default_camera": {"pos": [-15, 12, 10], "target": [4.5, 1, 10]},
+        "sensors": [
+            {"entity": "sensor.demo_temperature_salon", "name": "Living room temp", "room": "salon", "pos": [3, 1.7, 2.2]},
+            {"entity": "sensor.demo_temperature_chambre", "name": "Bedroom temp", "room": "chambre", "pos": [2.5, 1.7, 2.5]},
+            {"entity": "sensor.demo_humidity_salon", "name": "Living room humidity", "room": "salon", "pos": [4.2, 1.7, 1.5]},
+            {"entity": "light.demo_lamp", "name": "Lamp", "room": "salon", "pos": [5.2, 1.2, 3.8]},
+            {"entity": "switch.demo_plug", "name": "Plug", "room": "bureau", "pos": [9.5, 1.2, 6.5]},
+            {"entity": "binary_sensor.demo_door", "name": "Front door", "room": "salon", "pos": [0.2, 1.5, 0.2]},
+        ],
+        "doors": [
+            {"id": "porte_salon_cuisine", "name": "Salon ↔ Kitchen", "room": "salon", "rotY": 0, "fixed": 0, "t": 6, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": 1},
+            {"id": "porte_salon_chambre", "name": "Salon ↔ Bedroom", "room": "salon", "rotY": 1.5708, "fixed": 0, "t": 5, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": 1},
+            {"id": "porte_chambre_sdb", "name": "Bedroom ↔ Bathroom", "room": "chambre", "rotY": 1.5708, "fixed": 5, "t": 5, "width": 0.9, "height": 2.1, "hinge": "a0", "openSign": 1},
+        ],
+        "default_camera": {"pos": [-18, 14, 14], "target": [5.5, 1, 3.5]},
     }
 
 
@@ -131,6 +156,30 @@ def _door_ids() -> set:
     return {d["entity"] for d in LAYOUT.get("doors", []) if d.get("entity")}
 
 
+def _demo_sensor_state(s: dict) -> tuple:
+    """Valeur simulée réaliste pour le mode démo, selon le type d'entité."""
+    eid = s["entity"]
+    name = (s.get("label") or eid).lower()
+    # Déterministe : stable entre les rechargements
+    seed = sum(ord(c) for c in eid)
+    base = (seed % 100) / 100.0
+    if eid.startswith(("sensor.temperature",)) or "temp" in name and "hum" not in name:
+        return f"{19 + round(base * 8, 1)}", "°C"
+    if eid.startswith(("sensor.humidity",)) or "hum" in name:
+        return f"{40 + round(base * 30)}", "%"
+    if eid.startswith(("binary_sensor.",)) or "door" in name or "porte" in name:
+        return "off", ""
+    if eid.startswith(("light.", "switch.", "fan.")):
+        return "on" if base > 0.5 else "off", ""
+    if eid.startswith(("sensor.power", "sensor.energy", "sensor.conso")) or "power" in name:
+        return f"{round(base * 400 + 5)}", "W"
+    if eid.startswith(("sensor.battery",)) or "battery" in name:
+        return f"{round(base * 40 + 55)}", "%"
+    if "solar" in name:
+        return f"{round(base * 2500 + 500)}", "W"
+    return "21.5", "°C"
+
+
 def _status_entry(s: dict, by_id: dict) -> dict:
     """Construit l'entrée de statut d'un capteur configuré depuis un dict états."""
     sid = s["entity"]
@@ -161,6 +210,10 @@ def _status_entry(s: dict, by_id: dict) -> dict:
 
     e = by_id.get(sid)
     if e is None:
+        # Mode démo : simule une valeur réaliste selon le type d'entité
+        if IS_DEMO:
+            sim = _demo_sensor_state(s)
+            return {"entity": sid, "state": sim[0], "unit": sim[1], "attrs": {"friendly_name": s.get("label", sid), "demo": True}}
         return {"entity": sid, "state": "unavailable", "unit": "", "attrs": {}}
     attrs = e.get("attrs", {})
     return {
@@ -209,6 +262,10 @@ def get_status() -> dict:
     Inclut les coordonnées géographiques (jour/nuit saisonnier côté client).
     """
     lat, lon = _status_geo()
+    # Mode démo : pas besoin d'interroger HA, valeurs simulées déterministes
+    if IS_DEMO:
+        out = [_status_entry(s, {}) for s in LAYOUT["sensors"]]
+        return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": [], "geo": {"lat": lat, "lon": lon}, "demo": True}
     with STATE_CACHE_LOCK:
         cache_hot = len(STATE_CACHE) >= len(_tracked_ids()) * 0.5
     if cache_hot:

@@ -4,6 +4,10 @@ Interactive 3D visualizer (three.js) of your home with real-time Home Assistant 
 
 > **🌍 Languages** — [🇫🇷 Français](README.fr.md) · [🇬🇧 English](README.md)
 
+![Ha3D demo house](docs/screenshot.png)
+
+*Demo house with simulated sensors — no Home Assistant required to try it out.*
+
 ## ✨ Features
 
 - **3D rendering** of the home (default isometric view, OrbitControls: orbit / zoom / pan)

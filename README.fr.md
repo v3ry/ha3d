@@ -4,6 +4,10 @@ Visualiseur 3D interactif (three.js) de votre maison avec les capteurs Home Assi
 
 > **🌍 Langues** — [🇫🇷 Français](README.fr.md) · [🇬🇧 English](README.md)
 
+![Maison de démo Ha3D](docs/screenshot.png)
+
+*Maison de démonstration avec capteurs simulés — aucun Home Assistant requis pour essayer.*
+
 ## ✨ Fonctionnalités
 
 - **Rendu 3D** de la maison (vue isométrique par défaut, OrbitControls : orbite / zoom / pan)
