@@ -414,19 +414,57 @@ function doorMatchesSegment(d, seg) {
   return Math.abs(d.rotY - seg.rotY) < DOOR_EPS_ROT && Math.abs(d.fixed - seg.fixed) < DOOR_EPS_POS;
 }
 
+// --- Pièces polygonales : une pièce peut avoir pts: [[x,z],...] (sommets absolus) ---
+let wallSegments = [];  // tous les segments de murs (pour l'accrochage des portes)
+
+function roomEdges(room) {
+  if (room.pts && room.pts.length >= 3) {
+    const edges = [];
+    for (let i = 0; i < room.pts.length; i++) {
+      const p1 = room.pts[i], p2 = room.pts[(i + 1) % room.pts.length];
+      edges.push(edgeFromPts(p1, p2, room));
+    }
+    return edges;
+  }
+  const w = room.w, d = room.d;
+  return [
+    { rotY: 0,         fixed: room.z,     a0: room.x,       a1: room.x + w, room: room.id, color: room.color },  // nord
+    { rotY: 0,         fixed: room.z + d, a0: room.x,       a1: room.x + w, room: room.id, color: room.color },  // sud
+    { rotY: Math.PI/2, fixed: room.x,     a0: room.z,       a1: room.z + d, room: room.id, color: room.color },  // ouest
+    { rotY: Math.PI/2, fixed: room.x + w, a0: room.z,       a1: room.z + d, room: room.id, color: room.color },  // est
+  ];
+}
+
+function edgeFromPts(p1, p2, room) {
+  const dx = p2[0] - p1[0], dz = p2[1] - p1[1];
+  if (Math.abs(dx) < 0.001) {  // arête verticale (le long de Z), x fixe
+    return { rotY: Math.PI/2, fixed: p1[0], a0: Math.min(p1[1], p2[1]), a1: Math.max(p1[1], p2[1]), room: room.id, color: room.color };
+  }
+  return { rotY: 0, fixed: p1[1], a0: Math.min(p1[0], p2[0]), a1: Math.max(p1[0], p2[0]), room: room.id, color: room.color };
+}
+
+function roomPtsCenter(room) {
+  let sx = 0, sz = 0;
+  room.pts.forEach(p => { sx += p[0]; sz += p[1]; });
+  return [sx / room.pts.length, sz / room.pts.length];
+}
+
+// Recalcule la bbox (x/z/w/d) d'une pièce polygonale — les meubles relatifs s'appuient dessus
+function roomRecalcBBox(room) {
+  const xs = room.pts.map(p => p[0]), zs = room.pts.map(p => p[1]);
+  room.x = Math.min(...xs);
+  room.z = Math.min(...zs);
+  room.w = Math.max(...xs) - room.x;
+  room.d = Math.max(...zs) - room.z;
+}
+
 function buildRooms() {
   layout.levels.forEach((level, li) => {
     const y = level.y_floor, h = level.height;
-    // 1) Collecte des segments de murs de toutes les pièces
+    // 1) Collecte des segments de murs de toutes les pièces (rectangles ou polygones)
     const segs = [];
-    level.rooms.forEach(room => {
-      const w = room.w, d = room.d;
-      // [rotY, position fixe, début, fin, pièce, couleur]
-      segs.push({ rotY: 0,        fixed: room.z,     a0: room.x,       a1: room.x + w, room: room.id, color: room.color });  // nord
-      segs.push({ rotY: 0,        fixed: room.z + d, a0: room.x,       a1: room.x + w, room: room.id, color: room.color });  // sud
-      segs.push({ rotY: Math.PI/2, fixed: room.x,     a0: room.z,       a1: room.z + d, room: room.id, color: room.color });  // ouest
-      segs.push({ rotY: Math.PI/2, fixed: room.x + w, a0: room.z,       a1: room.z + d, room: room.id, color: room.color });  // est
-    });
+    level.rooms.forEach(room => { segs.push(...roomEdges(room)); });
+    wallSegments = segs.map(s => ({ ...s }));  // copie pour l'accrochage des portes
     // 2) Fusion des segments colinéaires qui se chevauchent (murs partagés entre pièces)
     const merged = [];
     segs.forEach(s => {
@@ -486,7 +524,7 @@ function buildRooms() {
     });
     // 4) Étiquettes de pièces (une par pièce)
     level.rooms.forEach(room => {
-      const cx = room.x + room.w / 2, cz = room.z + room.d / 2;
+      const [cx, cz] = room.pts ? roomPtsCenter(room) : [room.x + room.w / 2, room.z + room.d / 2];
       const floorLabel = makeFloorLabel(room.name);
       floorLabel.position.set(cx, y + 0.115, cz);
       roomsGroup.add(floorLabel);
@@ -746,9 +784,20 @@ function buildDecor() {
   rooms.forEach(room => {
     const type = roomFloorType(room.id);
     const tex = makeFloorTexture(type);
-    const mat = new THREE.MeshStandardMaterial({ map:tex, roughness:.9, metalness:.05 });
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(room.w, .1, room.d), mat);
-    floor.position.set(room.x+room.w/2, level.y_floor+0.05, room.z+room.d/2);
+    const mat = new THREE.MeshStandardMaterial({ map:tex, roughness:.9, metalness:.05, side: THREE.DoubleSide });
+    let floor;
+    if (room.pts && room.pts.length >= 3) {
+      // Sol polygonal : ShapeGeometry (plan XY) couché sur le sol via rotation -90° X (y → -z)
+      const shape = new THREE.Shape();
+      room.pts.forEach((p, i) => i ? shape.lineTo(p[0], -p[1]) : shape.moveTo(p[0], -p[1]));
+      shape.closePath();
+      floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(0, level.y_floor + 0.05, 0);
+    } else {
+      floor = new THREE.Mesh(new THREE.BoxGeometry(room.w, .1, room.d), mat);
+      floor.position.set(room.x+room.w/2, level.y_floor+0.05, room.z+room.d/2);
+    }
     floor.receiveShadow = true;
     floor.userData = { roomId: room.id };
     decorGroup.add(floor);
@@ -1491,7 +1540,7 @@ function bindUI() {
   document.getElementById('debug-mode-objects').onclick = () => setDebugAxis('objects');
   document.getElementById('dbg-edit-apply').onclick = applyEdit;
   document.getElementById('dbg-edit-del').onclick = deleteEdit;
-  document.getElementById('dbg-edit-add').onclick = () => { if (debugAxis === 'doors') addDoor(); else addObject(); };
+  document.getElementById('dbg-edit-add').onclick = addEditItem;
   document.getElementById('debug-export').onclick = exportDebugPositions;
   document.getElementById('debug-cam-set').onclick = setDefaultCameraFromView;
   document.getElementById('debug-save').onclick = saveLayoutToServer;
@@ -1522,6 +1571,7 @@ function toggleDebug(btn) {
     debugDrag = null;
     controls.enabled = true;
     renderer.domElement.classList.remove('dragging');
+    if (roomVertexHelpers) { scene.remove(roomVertexHelpers); roomVertexHelpers = null; }
   }
 }
 
@@ -1539,6 +1589,9 @@ function setDebugAxis(axis) {
         ? '🚪 Cliquez une porte pour l’éditer, drag = déplacer le long du mur. ➕ Nouveau = créer une porte.'
         : '🛋️ Cliquez un objet pour l’éditer, drag = déplacer. ➕ Nouveau = créer un objet.';
   }
+  // Poignées de sommets : visibles uniquement en mode Pièces
+  if (axis === 'rooms') rebuildVertexHelpers();
+  else if (roomVertexHelpers) { scene.remove(roomVertexHelpers); roomVertexHelpers = null; }
 }
 
 function debugPlaneAt(y) {
@@ -1659,6 +1712,7 @@ function bindDebugDrag() {
             : '<span style="color:#8b949e">Redimensionnement : les capteurs gardent leur position absolue. 💾 pour sauvegarder.</span>');
       }
       debugRoomEdit = null;
+      rebuildVertexHelpers();
       return;
     }
     if (!debugDrag) return;
@@ -1697,22 +1751,48 @@ function roomGrabType(room, x, z) {
   return 'move';
 }
 
+// Poignées jaunes aux sommets des pièces polygonales (mode 🏠)
+let roomVertexHelpers = null;
+
+function rebuildVertexHelpers() {
+  if (roomVertexHelpers) { scene.remove(roomVertexHelpers); roomVertexHelpers = null; }
+  if (debugAxis !== 'rooms') return;
+  roomVertexHelpers = new THREE.Group();
+  layout.levels.forEach(level => level.rooms.forEach(room => {
+    if (!room.pts) return;
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd166 });
+    room.pts.forEach((p, i) => {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), mat);
+      s.position.set(p[0], level.y_floor + 0.15, p[1]);
+      s.userData = { roomId: room.id, vertexIdx: i };
+      roomVertexHelpers.add(s);
+    });
+  }));
+  scene.add(roomVertexHelpers);
+}
+
 function startRoomEdit(evt) {
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
   mouse.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObjects(floorMeshes.map(f => f.mesh), false);
+  // Poignées de sommets d'abord (pièces polygonales), puis sols
+  const vh = roomVertexHelpers ? roomVertexHelpers.children : [];
+  const hits = raycaster.intersectObjects([...vh, ...floorMeshes.map(f => f.mesh)], false);
   if (!hits.length) return;
-  const roomId = hits[0].object.userData.roomId;
+  const hitObj = hits[0].object;
+  const roomId = hitObj.userData.roomId;
   const room = layout.levels.flatMap(l => l.rooms).find(r => r.id === roomId);
   if (!room) return;
   evt.preventDefault();
   const startHit = rayToPlane(evt, debugPlaneAt(0.1));
   if (!startHit) return;
-  const grab = roomGrabType(room, startHit.x, startHit.z);
+  const vertexIdx = (hitObj.userData.vertexIdx !== undefined) ? hitObj.userData.vertexIdx : -1;
+  const grab = room.pts
+    ? (vertexIdx >= 0 ? 'vertex' : 'move')
+    : roomGrabType(room, startHit.x, startHit.z);
   debugRoomEdit = {
-    room, grab,
+    room, grab, vertexIdx,
     plane: debugPlaneAt(0.1),
     start: { x: startHit.x, z: startHit.z },
     orig: { x: room.x, z: room.z, w: room.w, d: room.d },
@@ -1724,8 +1804,10 @@ function startRoomEdit(evt) {
   controls.enabled = false;
   renderer.domElement.classList.add('dragging');
   renderer.domElement.setPointerCapture(evt.pointerId);
+  const grabLabel = grab === 'move' ? 'déplacer' : (grab === 'vertex' ? 'déplacer le sommet' : 'redimensionner (' + grab + ')');
   document.getElementById('debug-sel').innerHTML =
-    `🖱️ <b>${room.name}</b> — ${grab === 'move' ? 'déplacer' : 'redimensionner (' + grab + ')'}…`;
+    `🖱️ <b>${room.name}</b> — ${grabLabel}…`;
+  openRoomPanel(room);
 }
 
 function continueRoomEdit(evt) {
@@ -1735,10 +1817,34 @@ function continueRoomEdit(evt) {
   const dx = hit.x - re.start.x, dz = hit.z - re.start.z;
   const r = re.room;
   let changed = false;
-  if (re.grab === 'move') {
-    const nx = Math.round((re.orig.x + dx) * 100) / 100;
-    const nz = Math.round((re.orig.z + dz) * 100) / 100;
-    if (nx !== r.x || nz !== r.z) { r.x = nx; r.z = nz; changed = true; }
+  if (re.grab === 'vertex' && r.pts) {
+    const p = r.pts[re.vertexIdx];
+    if (!p) return;
+    const nx = Math.round(hit.x * 100) / 100;
+    const nz = Math.round(hit.z * 100) / 100;
+    if (nx !== p[0] || nz !== p[1]) { p[0] = nx; p[1] = nz; changed = true; }
+    roomRecalcBBox(r);
+    // Poignée du sommet déplacée en direct
+    if (roomVertexHelpers) {
+      const h = roomVertexHelpers.children.find(c => c.userData.roomId === r.id && c.userData.vertexIdx === re.vertexIdx);
+      if (h) h.position.set(p[0], h.position.y, p[1]);
+    }
+  } else if (re.grab === 'move') {
+    if (r.pts) {
+      r.pts.forEach(p => {
+        p[0] = Math.round((p[0] + dx) * 100) / 100;
+        p[1] = Math.round((p[1] + dz) * 100) / 100;
+      });
+      roomRecalcBBox(r);
+      changed = true;
+      if (roomVertexHelpers) roomVertexHelpers.children.forEach(c => {
+        if (c.userData.roomId === r.id) { c.position.x += dx; c.position.z += dz; }
+      });
+    } else {
+      const nx = Math.round((re.orig.x + dx) * 100) / 100;
+      const nz = Math.round((re.orig.z + dz) * 100) / 100;
+      if (nx !== r.x || nz !== r.z) { r.x = nx; r.z = nz; changed = true; }
+    }
     // Les capteurs de la pièce suivent le déplacement
     re.sensors.forEach(s => {
       const nx2 = Math.round((s.orig[0] + dx) * 100) / 100;
@@ -1764,8 +1870,9 @@ function continueRoomEdit(evt) {
     updateFloorLive(r);
     updateRoomContent(r);
     _roomDirty = true;
-    document.getElementById('debug-sel').innerHTML =
-      `✏️ <b>${r.name}</b> → x=${r.x} z=${r.z} w=${r.w} d=${r.d}`;
+    document.getElementById('debug-sel').innerHTML = r.pts
+      ? `✏️ <b>${r.name}</b> — ${re.grab === 'vertex' ? 'sommet déplacé' : 'pièce déplacée'} (${r.pts.length} sommets). 💾 pour sauvegarder.`
+      : `✏️ <b>${r.name}</b> → x=${r.x} z=${r.z} w=${r.w} d=${r.d}`;
   }
 }
 
@@ -1773,6 +1880,15 @@ function continueRoomEdit(evt) {
 function updateFloorLive(room) {
   const fe = floorMeshes.find(f => f.roomId === room.id);
   if (!fe) return;
+  if (room.pts && room.pts.length >= 3) {
+    // Sol polygonal : les sommets ont bougé → recréer la géométrie
+    if (fe.mesh.geometry) fe.mesh.geometry.dispose();
+    const shape = new THREE.Shape();
+    room.pts.forEach((p, i) => i ? shape.lineTo(p[0], -p[1]) : shape.moveTo(p[0], -p[1]));
+    shape.closePath();
+    fe.mesh.geometry = new THREE.ShapeGeometry(shape);
+    return;
+  }
   fe.mesh.position.set(room.x + room.w / 2, 0.05, room.z + room.d / 2);
   fe.mesh.scale.set(room.w / fe.w, 1, room.d / fe.d);
 }
@@ -1897,6 +2013,9 @@ function openDoorPanel(door) {
   search.value = '';
   document.getElementById('dbg-edit-results').style.display = 'none';
   search.oninput = () => searchEditEntities(search.value);
+  document.getElementById('dbg-edit-add').textContent = '➕ Nouveau';
+  document.getElementById('dbg-edit-add').style.display = 'block';
+  document.getElementById('dbg-edit-del').style.display = 'block';
 }
 
 function openObjectPanel(f) {
@@ -1919,6 +2038,9 @@ function openObjectPanel(f) {
         `<label class="dbg-field">Couleur<input id="ed-color" type="color" value="${f.c || '#888888'}"></label>`);
   document.getElementById('dbg-edit-search').style.display = 'none';
   document.getElementById('dbg-edit-results').style.display = 'none';
+  document.getElementById('dbg-edit-add').textContent = '➕ Nouveau';
+  document.getElementById('dbg-edit-add').style.display = 'block';
+  document.getElementById('dbg-edit-del').style.display = 'block';
 }
 
 async function searchEditEntities(q) {
@@ -1951,6 +2073,67 @@ function openEditPanelForSelection() {
   if (!editSel) return;
   if (editKind === 'door') openDoorPanel(editSel.door);
   else if (editKind === 'object') openObjectPanel(editSel.f);
+  else if (editKind === 'room') openRoomPanel(editSel.room);
+}
+
+// --- Panneau d'édition d'une pièce (mode 🏠) ---
+function openRoomPanel(room) {
+  editKind = 'room';
+  editSel = { room };
+  const panel = document.getElementById('debug-edit');
+  panel.style.display = 'block';
+  document.getElementById('dbg-edit-title').textContent = `🏠 ${room.name}`;
+  document.getElementById('dbg-edit-fields').innerHTML =
+    editField('Nom', 'ed-name', room.name) +
+    `<label class="dbg-field">Couleur<input id="ed-color" type="color" value="${room.color || '#8b949e'}"></label>` +
+    `<label class="dbg-field">Forme<select id="ed-shape">
+       <option value="rect" ${room.pts ? '' : 'selected'}>Rectangle</option>
+       <option value="poly" ${room.pts ? 'selected' : ''}>Polygone (sommets libres)</option>
+     </select></label>` +
+    (room.pts
+      ? '<div class="dbg-hint" style="font-size:12px;color:#8b949e">🟡 Poignées : cliquez-glissez un sommet pour le déplacer. ➕ Point = insérer un sommet au milieu de la 1ʳᵉ arête.</div>'
+      : '<div class="dbg-hint" style="font-size:12px;color:#8b949e">🔷 Convertir en polygone pour créer des formes libres (L, décrochés…).</div>');
+  document.getElementById('dbg-edit-add').textContent = room.pts ? '➕ Point' : '🔷 Convertir';
+  document.getElementById('dbg-edit-add').style.display = 'block';
+  document.getElementById('dbg-edit-del').style.display = 'none';  // pas de suppression de pièce (risqué)
+  document.getElementById('dbg-edit-search').style.display = 'none';
+  document.getElementById('dbg-edit-results').style.display = 'none';
+}
+
+function convertRoomToPolygon(room) {
+  room.pts = [
+    [room.x, room.z],
+    [room.x + room.w, room.z],
+    [room.x + room.w, room.z + room.d],
+    [room.x, room.z + room.d],
+  ];
+  rebuildRoomsVisual();
+  rebuildDecorVisual();
+  rebuildVertexHelpers();
+  openRoomPanel(room);
+  document.getElementById('debug-sel').innerHTML =
+    `🔷 « ${room.name} » converti en polygone — déplacez les 🟡 sommets.`;
+}
+
+function addRoomVertex(room) {
+  const mid = [(room.pts[0][0] + room.pts[1][0]) / 2, (room.pts[0][1] + room.pts[1][1]) / 2];
+  room.pts.splice(1, 0, mid);
+  rebuildRoomsVisual();
+  rebuildDecorVisual();
+  rebuildVertexHelpers();
+  openRoomPanel(room);
+  document.getElementById('debug-sel').innerHTML =
+    `➕ Sommet ajouté — déplacez la nouvelle 🟡 poignée.`;
+}
+
+function addEditItem() {
+  if (debugAxis === 'doors') return addDoor();
+  if (debugAxis === 'objects') return addObject();
+  if (debugAxis === 'rooms' && editSel && editKind === 'room') {
+    const room = editSel.room;
+    if (!room.pts) convertRoomToPolygon(room);
+    else addRoomVertex(room);
+  }
 }
 
 function applyEdit() {
@@ -1980,6 +2163,16 @@ function applyEdit() {
     }
     rebuildDecorVisual();
     msg.textContent = `💾 Objet « ${f.name || f.id} » mis à jour. Cliquez 💾 Sauvegarder pour écrire sur le serveur.`;
+  } else if (editKind === 'room') {
+    const room = editSel.room;
+    const newName = document.getElementById('ed-name').value.trim();
+    const newColor = document.getElementById('ed-color').value;
+    const shape = document.getElementById('ed-shape').value;
+    if (newName) room.name = newName;
+    if (newColor) room.color = newColor;
+    if (shape === 'poly' && !room.pts) { convertRoomToPolygon(room); }
+    else { rebuildRoomsVisual(); rebuildVertexHelpers(); }
+    msg.textContent = `💾 Pièce « ${room.name} » mise à jour. Cliquez 💾 Sauvegarder pour écrire sur le serveur.`;
   }
   msg.style.color = '#58a6ff';
   openEditPanelForSelection();
@@ -2044,21 +2237,39 @@ function startDoorDrag(evt, door) {
   renderer.domElement.setPointerCapture(evt.pointerId);
 }
 
+// Segment de mur le plus proche d'un point au sol (accroche les portes sur n'importe quel mur)
+function nearestWallSegment(pt) {
+  let best = null, bestD = Infinity;
+  wallSegments.forEach(seg => {
+    const isV = Math.abs(seg.rotY - Math.PI / 2) < DOOR_EPS_ROT;
+    let t, dist;
+    if (isV) { t = clamp(pt.z, seg.a0, seg.a1); dist = Math.abs(pt.x - seg.fixed); }
+    else { t = clamp(pt.x, seg.a0, seg.a1); dist = Math.abs(pt.z - seg.fixed); }
+    const px = isV ? seg.fixed : t, pz = isV ? t : seg.fixed;
+    const d = Math.hypot(pt.x - px, pt.z - pz) + dist * 0.5;  // pénalise légèrement les murs éloignés
+    if (d < bestD) { bestD = d; best = { seg, t }; }
+  });
+  return best;
+}
+
 function continueDoorDrag(evt) {
   const d = editDrag;
   const hit = rayToPlane(evt, debugPlaneAt(0.1));
   if (!hit) return;
-  const isV = Math.abs((d.door.rotY || 0) - Math.PI / 2) < DOOR_EPS_ROT;
-  const room = d.room;
-  let t;
-  if (isV) {
-    t = hit.z - (d.start.z - d.door.t);
-    if (room) t = clamp(t, room.z + 0.3, room.z + room.d - 0.3);
-  } else {
-    t = hit.x - (d.start.x - d.door.t);
-    if (room) t = clamp(t, room.x + 0.3, room.x + room.w - 0.3);
+  const near = nearestWallSegment({ x: hit.x, z: hit.z });
+  if (!near) return;
+  const door = d.door;
+  const seg = near.seg;
+  const onSameWall = Math.abs((door.rotY || 0) - seg.rotY) < DOOR_EPS_ROT &&
+                     Math.abs((door.fixed || 0) - seg.fixed) < DOOR_EPS_POS;
+  if (!onSameWall) {
+    // Changement de mur : la porte saute sur le nouveau segment (rotY/fixed/room suivent)
+    door.room = seg.room;
+    door.rotY = seg.rotY;
+    door.fixed = Math.round(seg.fixed * 100) / 100;
   }
-  d.door.t = Math.round(t * 100) / 100;
+  const lo = seg.a0 + 0.3, hi = seg.a1 - 0.3;
+  door.t = Math.round(clamp(near.t, Math.min(lo, hi), Math.max(lo, hi)) * 100) / 100;
   d.moved = true;
   buildDoors();
 }
