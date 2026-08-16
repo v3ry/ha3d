@@ -1,27 +1,29 @@
-# 🏠 Maison 3D — Visualiseur 3D des capteurs Home Assistant
+# 🏠 Ha3D — 3D home visualizer for Home Assistant
 
-Visualiseur 3D interactif (three.js) de votre maison avec les capteurs Home Assistant en temps réel : températures, clims, lumières cliquables, portes animées, solaire, batteries. Éditeur intégré : dessinez vos pièces, placez portes et meubles, ajoutez vos entités — le tout sauvegardé dans un fichier JSON local.
+Interactive 3D visualizer (three.js) of your home with real-time Home Assistant sensors: temperatures, climate, clickable lights, animated doors, solar, batteries. Built-in editor: draw your rooms, place doors and furniture, add your entities — everything saved to a local JSON file.
 
-## ✨ Fonctionnalités
+> **🌍 Languages** — [🇫🇷 Français](README.fr.md) · [🇬🇧 English](README.md)
 
-- **Rendu 3D** de la maison (vue isométrique par défaut, OrbitControls : orbite / zoom / pan)
-- **Capteurs en direct** depuis Home Assistant (WebSocket HA → SSE temps réel, fallback 60 s)
-- **Icônes 3D par type** : thermomètre (temp), goutte (humidité), flocon (clim), ampoule (lumière), éclair (conso), batterie, panneau solaire, porte, alerte
-- **Lumières 3D cliquables** : toggle via l'API HA (halo + ombres portées)
-- **Portes réelles animées** : murs découpés aux ouvertures, cadres + vantaux pivotants selon l'état HA (on = ouverte, transition douce)
-- **Murs fusionnés** : murs partagés entre pièces dédupliqués (pas de clipping)
-- **Jour/nuit saisonnier 🌗** : position du soleil calculée selon date/heure réelles et géolocalisation (lever/coucher naturels, lumière et couleurs adaptées), modes manuels ☀️/🌙
-- **Étiquettes anti-chevauchement**
-- **Mode debug 🔧** :
-  - Drag & drop des entités (sol X/Z ou hauteur Y)
-  - Édition des pièces 🏠 (déplacer, redimensionner, polygones), portes 🚪 et objets 🛋️ (drag, rotation molette ou touche **R**, ➕ ajouter, 🗑️ supprimer)
-  - **Undo/Redo : Ctrl+Z / Ctrl+Shift+Z** (50 étapes)
-  - Ajout / suppression d'entités HA (recherche en direct)
-  - Vues caméra enregistrées 🎥, capture de la caméra par défaut
-  - Sauvegarde directe sur le serveur (backup automatique)
-- **Historique 24 h** par capteur (courbe)
-- **Alertes** : porte ouverte, batterie faible, température élevée
-- **Filtres** par type, **Capture PNG** du rendu
+## ✨ Features
+
+- **3D rendering** of the home (default isometric view, OrbitControls: orbit / zoom / pan)
+- **Real-time sensors** from Home Assistant (HA WebSocket → SSE, 60s fallback)
+- **3D icons by type**: thermometer (temp), droplet (humidity), snowflake (AC), bulb (light), lightning (power), battery, solar panel, door, alert
+- **Clickable 3D lights**: toggle via the HA API (halo + drop shadows)
+- **Real animated doors**: walls cut at openings, frames + pivoting leaves driven by HA state (on = open, smooth transition)
+- **Merged walls**: shared walls between rooms are deduplicated (no clipping)
+- **Seasonal day/night 🌗**: real sun position from date/time and geolocation (natural sunrise/sunset, adapted lighting and colors), manual modes ☀️/🌙
+- **Anti-overlap labels**
+- **Debug mode 🔧**:
+  - Drag & drop entities (floor X/Z or height Y)
+  - Room 🏠, door 🚪 and object 🛋️ editing (drag, wheel or **R** key rotation, ➕ add, 🗑️ delete)
+  - **Undo/Redo: Ctrl+Z / Ctrl+Shift+Z** (50 steps)
+  - Add / remove HA entities (live search)
+  - Saved camera views 🎥, default camera capture
+  - Direct server save (automatic backup)
+- **24h history** per sensor (chart)
+- **Alerts**: open door, low battery, high temperature
+- **Type filters**, **PNG capture**
 
 ## 🚀 Installation
 
@@ -29,33 +31,33 @@ Visualiseur 3D interactif (three.js) de votre maison avec les capteurs Home Assi
 git clone https://github.com/v3ry/ha3d.git
 cd ha3d
 
-# 1. Configuration : URL + token Home Assistant
+# 1. Configuration: Home Assistant URL + token
 cp .env.example .env
-#    éditez .env : HASS_URL=http://<ip-ha>:8123 et HA_TOKEN=<jeton longue durée>
-#    (Profil Home Assistant > Jetons d'accès longue durée)
+#    edit .env: HASS_URL=http://<ha-ip>:8123 and HA_TOKEN=<long-lived token>
+#    (Home Assistant Profile > Security > Long-lived access tokens)
 
-# 2. Layout de départ (maison de démonstration)
+# 2. Starting layout (demo house)
 cp layout.example.json layout.json
 
-# 3. Lancement
+# 3. Run
 python3 ha3d_server.py
 # → http://127.0.0.1:9125
 ```
 
-> **Note** : sans `layout.json`, le serveur démarre avec une maison de démonstration — utilisez le mode debug 🔧 pour dessiner vos pièces et ajouter vos entités.
+> **Note**: without `layout.json`, the server starts with a demo house — use debug mode 🔧 to draw your rooms and add your entities.
 
-### Accès depuis d'autres appareils
+### Access from other devices
 
 ```bash
-# Dans .env : exposer sur le réseau local
+# In .env: expose on the local network
 MAISON3D_HOST=0.0.0.0
 ```
 
-### Systemd (auto-démarrage)
+### Systemd (auto-start)
 
 ```bash
 cp maison3d.service.example ~/.config/systemd/user/maison3d.service
-# adaptez WorkingDirectory/ExecStart à votre chemin d'installation
+# adapt WorkingDirectory/ExecStart to your install path
 systemctl --user daemon-reload
 systemctl --user enable --now maison3d
 ```
@@ -63,59 +65,63 @@ systemctl --user enable --now maison3d
 ### Docker
 
 ```bash
-cp .env.example .env    # remplir HASS_URL + HA_TOKEN
-cp layout.example.json layout.json   # ou laisser la démo auto-générée
+cp .env.example .env    # fill HASS_URL + HA_TOKEN
+cp layout.example.json layout.json   # or let the auto-generated demo house run
 
-# Build + lancement
+# Build + run
 docker compose up -d --build
 # → http://127.0.0.1:9125
 ```
 
-Le conteneur tourne en **utilisateur non-root**, monte `layout.json` et `ha3d_layout_backups/` en volumes (persistance + backups). Le serveur écrit les backups dans `HA3D_BACKUP_DIR` (défaut : `~/ha3d_layout_backups`, surchargeable).
+The container runs as a **non-root user**, mounts `layout.json` and `ha3d_layout_backups/` as volumes (persistence + backups). The server writes backups to `HA3D_BACKUP_DIR` (default: `~/ha3d_layout_backups`, overridable).
 
-### Vérifier la configuration
+### Check your configuration
 
 ```bash
-python3 tools/check_config.py   # .env, connexion HA, validité du layout
+python3 tools/check_config.py   # .env, HA connection, layout validity
 ```
 
 ## ⚙️ Configuration
 
-- **`.env`** : `HASS_URL`, `HA_TOKEN` (obligatoires) ; `MAISON3D_HOST` (défaut `127.0.0.1`), `MAISON3D_PORT` (défaut `9125`) ; `HA3D_LAT`/`HA3D_LON` (optionnels — par défaut auto-détectés depuis la config HA) ; `HA3D_BACKUP_DIR` (répertoire des backups, défaut `~/ha3d_layout_backups`)
-- **`layout.json`** : pièces, entités, positions, caméra — généré via l'éditeur 3D (mode debug), sauvegardé avec backup automatique dans `~/ha3d_layout_backups/`
+- **`.env`**: `HASS_URL`, `HA_TOKEN` (required); `MAISON3D_HOST` (default `127.0.0.1`), `MAISON3D_PORT` (default `9125`); `HA3D_LAT`/`HA3D_LON` (optional — auto-detected from HA config by default); `HA3D_BACKUP_DIR` (backup directory, default `~/ha3d_layout_backups`)
+- **`layout.json`**: rooms, entities, positions, camera — generated with the 3D editor (debug mode), saved with automatic backup to `~/ha3d_layout_backups/`
 
-## 🛡️ Sécurité
+## 🌍 Languages
 
-- **Le serveur écoute sur `127.0.0.1` par défaut** — exposez-le (`MAISON3D_HOST=0.0.0.0`) uniquement sur un réseau de confiance
-- Les endpoints d'écriture (`/api/save-layout`, `/api/toggle`) **ne sont pas authentifiés** : ne publiez jamais ce serveur sur Internet
-- Vos données restent locales : `layout.json` (pièces, entités, position GPS) est ignoré par git
-- Le token HA n'est lu que depuis `.env` (jamais committé)
+The interface is available in **French** and **English**. Language is auto-detected from your browser (`navigator.language`) and can be switched anytime with the **🇫🇷/🇬🇧 selector** in the top-left HUD. Your choice is remembered (`localStorage`).
 
-## 🧰 Développement
+## 🛡️ Security
+
+- **The server listens on `127.0.0.1` by default** — only expose it (`MAISON3D_HOST=0.0.0.0`) on a trusted network
+- Write endpoints (`/api/save-layout`, `/api/toggle`) are **not authenticated**: never expose this server to the Internet
+- Your data stays local: `layout.json` (rooms, entities, GPS position) is git-ignored
+- The HA token is only read from `.env` (never committed)
+
+## 🧰 Development
 
 ```bash
-python3 -m unittest test_ha3d_server   # tests serveur + validation layout
+python3 -m unittest test_ha3d_server   # server tests + layout validation
 ```
 
 ## 🗂️ Architecture
 
-| Fichier | Rôle |
+| File | Role |
 |---|---|
-| `ha3d_server.py` | Serveur HTTP + proxy API HA (layout, status, history, toggle, save-layout, entités, SSE) |
-| `index.html` | Client three.js (rendu, interactions, mode debug) — aucune dépendance npm |
-| `layout.json` | Configuration locale (pièces, entités, positions, caméra) — **non versionné** |
-| `layout.example.json` | Layout de démonstration |
-| `models/` | Modèles glTF 3D (CC0 — poly.pizza + Khronos), servis par `/models/*.glb` |
-| `ha_ws.py` | Client websocket HA (pilotage dashboards Lovelace) |
-| `tools/` | Utilitaires : `check_config.py` (vérif pré-lancement), `fetch_furniture.py` (catalogue CC0) |
-| `Dockerfile`, `docker-compose.yml` | Conteneur (utilisateur non-root, volumes layout + backups) |
+| `ha3d_server.py` | HTTP server + HA API proxy (layout, status, history, toggle, save-layout, entities, SSE) |
+| `index.html` | three.js client (rendering, interactions, debug mode) — no npm dependencies |
+| `layout.json` | Local configuration (rooms, entities, positions, camera) — **not versioned** |
+| `layout.example.json` | Demo layout |
+| `models/` | 3D glTF models (CC0 — poly.pizza + Khronos), served by `/models/*.glb` |
+| `ha_ws.py` | HA WebSocket client (Lovelace dashboard driving) |
+| `tools/` | Utilities: `check_config.py` (pre-launch check), `fetch_furniture.py` (CC0 catalog) |
+| `Dockerfile`, `docker-compose.yml` | Container (non-root user, layout + backups volumes) |
 
-## 📦 Catalogue de modèles 3D
+## 📦 3D model catalog
 
-Le panneau objet permet de choisir le type : **🟫 Boîte simple** ou **🧊 modèle 3D** (liste chargée depuis `/api/models`). Déposez un `.glb` dans `models/` — il apparaît automatiquement dans la liste.
+The object panel lets you choose the type: **🟫 Simple box** or **🧊 3D model** (list loaded from `/api/models`). Drop a `.glb` into `models/` — it automatically appears in the list.
 
-28 modèles inclus, tous **CC0** : canapés, tables, lits, chaises, armoires, rangements, électroménager, salle de bain, lampes, plante (source [poly.pizza](https://poly.pizza) + Khronos Sample Models) — voir `models/README.md` pour l'attribution détaillée.
+28 included models, all **CC0**: sofas, tables, beds, chairs, wardrobes, storage, appliances, bathroom, lamps, plant (source [poly.pizza](https://poly.pizza) + Khronos Sample Models) — see `models/README.md` for detailed attribution.
 
-## 📄 Licence
+## 📄 License
 
-[MIT](LICENSE) © 2026 v3ry — usage libre, y compris commercial.
+[MIT](LICENSE) © 2026 v3ry — free to use, including commercially.
