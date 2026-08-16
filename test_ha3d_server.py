@@ -135,6 +135,24 @@ class TestValidateLayout(unittest.TestCase):
         l["sensors"].append({"entity": "sensor.a", "room": "salon"})
         self.assertFalse(h.validate_layout(l)[0])
 
+    def test_vues_camera_valides(self):
+        l = self._valid()
+        l["camera_views"] = [{"name": "Salon", "pos": [1, 2, 3], "target": [0, 1, 0]}]
+        self.assertEqual(h.validate_layout(l), (True, ""))
+
+    def test_vue_camera_pos_invalide(self):
+        l = self._valid()
+        l["camera_views"] = [{"name": "Salon", "pos": [1, 2], "target": [0, 1, 0]}]
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_vue_camera_nom_duplique(self):
+        l = self._valid()
+        l["camera_views"] = [
+            {"name": "Salon", "pos": [1, 2, 3], "target": [0, 1, 0]},
+            {"name": "Salon", "pos": [4, 5, 6], "target": [0, 1, 0]},
+        ]
+        self.assertFalse(h.validate_layout(l)[0])
+
     def test_objet_sans_id(self):
         l = self._valid()
         l["levels"][0]["furniture"] = [{"type": "box", "name": "x"}]
