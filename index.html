@@ -8,6 +8,25 @@
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family: system-ui, -apple-system, sans-serif; background:#0d1117; color:#e6edf3; overflow:hidden; }
   #scene3d { width:100vw; height:100vh; display:block; }
+  #welcome {
+    position:fixed; inset:0; background:rgba(13,17,23,.72); z-index:100;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .welcome-box {
+    background:#161b22; border:1px solid #30363d; border-radius:14px;
+    padding:26px 30px; max-width:520px; box-shadow:0 16px 48px rgba(0,0,0,.6);
+    position:relative;
+  }
+  .welcome-box h2 { font-size:19px; margin-bottom:10px; }
+  .welcome-box p { font-size:13px; color:#c9d1d9; margin-bottom:10px; line-height:1.5; }
+  .welcome-box ol { margin:0 0 10px 20px; font-size:13px; color:#c9d1d9; line-height:1.7; }
+  .welcome-box .close { position:absolute; top:12px; right:12px; }
+  .welcome-tip { font-size:12px; color:#8b949e; background:#0d1117; border:1px dashed #30363d; border-radius:8px; padding:8px 10px; }
+  .welcome-box #welcome-start {
+    width:100%; margin-top:6px; background:#3fb950; color:#0d1117; font-weight:600;
+    border:none; border-radius:8px; padding:9px; font-size:13px; cursor:pointer;
+  }
+  .welcome-box #welcome-start:hover { background:#46c25c; }
   #hud {
     position:fixed; top:14px; left:14px; background:rgba(13,17,23,.88);
     border:1px solid #30363d; border-radius:12px; padding:14px 16px; min-width:230px;
@@ -102,6 +121,12 @@
     width:100%; padding:8px; border-radius:8px; border:none; cursor:pointer;
     background:#f0883e; color:#0d1117; font-weight:700; font-size:12px; margin-bottom:8px;
   }
+  #debug-panel .dbg-layout-io { display:flex; gap:6px; margin-bottom:8px; }
+  #debug-panel .dbg-layout-io button {
+    flex:1; background:#21262d; color:#e6edf3; border:1px solid #30363d;
+    border-radius:6px; padding:6px 8px; font-size:11px; cursor:pointer;
+  }
+  #debug-panel .dbg-layout-io button:hover { background:#30363d; }
   #debug-panel .dbg-cam { display:flex; gap:6px; margin-bottom:8px; }
   #debug-panel .dbg-cam button {
     flex:1; padding:7px 4px; border-radius:8px; border:none; cursor:pointer;
@@ -182,6 +207,21 @@
 <body>
 <canvas id="scene3d"></canvas>
 
+<div id="welcome" style="display:none">
+  <div class="welcome-box">
+    <button class="close" id="welcome-close">✕</button>
+    <h2>👋 Bienvenue dans Ha3D !</h2>
+    <p>Le serveur tourne avec une <b>maison de démonstration</b> (aucun `layout.json` trouvé). Configurez votre propre maison en 3 étapes :</p>
+    <ol>
+      <li><b>Dessinez vos pièces</b> : bouton 🔧 Debug → mode 🏠 Pièces → ➕ Nouvelle pièce</li>
+      <li><b>Ajoutez vos capteurs</b> : panneau debug → « Ajouter une entité HA » → recherchez (ex : `temperature`, `battery`…) → cliquez une entité pour la placer</li>
+      <li><b>💾 Sauvegardez</b> : tout est écrit dans `layout.json` (backup automatique à chaque sauvegarde)</li>
+    </ol>
+    <p class="welcome-tip">💡 Astuce : restaurez une configuration existante avec « ⬆️ Importer un layout » (panneau debug).</p>
+    <button id="welcome-start">C'est parti !</button>
+  </div>
+</div>
+
 <div id="hud">
   <h1 id="hud-title">🏠 Ma maison</h1>
   <div class="sub" id="hud-sub">Chargement des capteurs…</div>
@@ -242,6 +282,11 @@
   </div>
   <div class="dbg-campos" id="debug-campos"></div>
   <button id="debug-export">📋 Exporter les positions</button>
+  <div class="dbg-layout-io">
+    <button id="debug-layout-export">⬇️ Exporter le layout (.json)</button>
+    <button id="debug-layout-import">⬆️ Importer un layout (.json)</button>
+    <input type="file" id="debug-layout-file" accept=".json,application/json" style="display:none">
+  </div>
   <div class="dbg-cam">
     <button id="debug-cam-set">📷 Vue = caméra actuelle</button>
     <button id="debug-save">💾 Sauvegarder</button>
@@ -366,6 +411,10 @@ async function init() {
   document.getElementById('hud-title').textContent = `🏠 ${l.house_name || 'Ma maison'}`;
   document.getElementById('hud-sub').textContent =
     `${l.house_name} · ${(s.sensors||[]).length} capteurs`;
+  // Premier lancement : le serveur tourne en mode démo → assistant
+  if (s.demo) {
+    document.getElementById('welcome').style.display = 'flex';
+  }
   // Coordonnées pour le jour/nuit saisonnier : depuis /api/status (env ou HA config)
   if (s.geo && s.geo.lat != null && s.geo.lon != null) {
     HA_LAT = s.geo.lat;
@@ -1634,6 +1683,14 @@ function bindUI() {
   document.getElementById('dbg-edit-del').onclick = deleteEdit;
   document.getElementById('dbg-edit-add').onclick = addEditItem;
   document.getElementById('debug-export').onclick = exportDebugPositions;
+  document.getElementById('debug-layout-export').onclick = exportLayout;
+  document.getElementById('debug-layout-import').onclick = () => document.getElementById('debug-layout-file').click();
+  document.getElementById('debug-layout-file').onchange = (e) => {
+    if (e.target.files && e.target.files[0]) importLayoutFile(e.target.files[0]);
+    e.target.value = '';
+  };
+  document.getElementById('welcome-close').onclick = () => { document.getElementById('welcome').style.display = 'none'; };
+  document.getElementById('welcome-start').onclick = () => { document.getElementById('welcome').style.display = 'none'; };
   document.getElementById('debug-cam-set').onclick = setDefaultCameraFromView;
   document.getElementById('debug-view-add').onclick = addCameraView;
   document.getElementById('debug-save').onclick = saveLayoutToServer;
@@ -2782,6 +2839,70 @@ async function saveLayoutToServer() {
     msg.style.color = '#ff5d5d';
     msg.textContent = `❌ Erreur réseau : ${e.message}`;
   }
+}
+
+// ---------- Import / export du layout ----------
+// Construit le JSON complet du layout courant (mêmes règles que saveLayoutToServer)
+function buildLayoutJSON() {
+  const r2 = v => Math.round(v * 100) / 100;
+  const cam = {
+    pos: [r2(camera.position.x), r2(camera.position.y), r2(camera.position.z)],
+    target: [r2(controls.target.x), r2(controls.target.y), r2(controls.target.z)],
+  };
+  const out = JSON.parse(JSON.stringify(layout));
+  sensorMeshes.forEach(entry => {
+    const e = entry.sensor.cfg.entity;
+    const p = entry.mesh.position;
+    const cfg = out.sensors.find(s => s.entity === e);
+    if (cfg) cfg.pos = [r2(p.x), r2(p.y), r2(p.z)];
+  });
+  out.default_camera = cam;
+  out.camera_views = cameraViews;
+  return out;
+}
+
+function exportLayout() {
+  const data = buildLayoutJSON();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const name = (data.house_name || 'maison').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'maison';
+  a.download = `layout-${name}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  document.getElementById('debug-sel').innerHTML =
+    `⬇️ Layout exporté (${Object.keys(data.sensors || {}).length} capteurs). Pour restaurer : ⬆️ Importer.`;
+}
+
+function importLayoutFile(file) {
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const msg = document.getElementById('debug-msg');
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || typeof data !== 'object' || !Array.isArray(data.sensors)) {
+        throw new Error('fichier invalide : "sensors" (liste) manquant');
+      }
+      const resp = await fetch('/api/save-layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const out = await resp.json();
+      if (out.ok) {
+        msg.style.color = '#3fb950';
+        msg.textContent = `⬆️ Layout importé : ${out.sensors} entités (backup → ${(out.backup || '').split('/').pop()}). Rechargement…`;
+        setTimeout(() => location.reload(), 1200);
+      } else {
+        msg.style.color = '#ff5d5d';
+        msg.textContent = `❌ Layout refusé : ${out.error || 'inconnue'}`;
+      }
+    } catch (e) {
+      msg.style.color = '#ff5d5d';
+      msg.textContent = `❌ Import impossible : ${e.message}`;
+    }
+  };
+  reader.readAsText(file);
 }
 
 // ============ GESTION DES ENTITÉS (ajout / suppression) ============

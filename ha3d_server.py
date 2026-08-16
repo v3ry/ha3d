@@ -103,6 +103,8 @@ def _load_layout():
 
 
 LAYOUT = _load_layout()
+# Vrai si le serveur tourne avec la maison de démo (pas de layout.json)
+IS_DEMO = not (BASE_DIR / "layout.json").exists()
 
 # Cache temps réel : entité -> {state, unit, attrs} alimenté par le WebSocket HA
 STATE_CACHE = {}
@@ -212,14 +214,14 @@ def get_status() -> dict:
     if cache_hot:
         by_id = dict(STATE_CACHE)
         out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
-        return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id), "geo": {"lat": lat, "lon": lon}}
+        return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id), "geo": {"lat": lat, "lon": lon}, "demo": IS_DEMO}
 
     # Fallback REST
     entity_ids = _tracked_ids()
     try:
         states = fetch_ha("/api/states")
     except Exception as e:
-        return {"error": str(e), "sensors": [], "geo": {"lat": lat, "lon": lon}}
+        return {"error": str(e), "sensors": [], "geo": {"lat": lat, "lon": lon}, "demo": IS_DEMO}
     by_id = {}
     for st in states:
         eid = st.get("entity_id", "")
@@ -241,7 +243,7 @@ def get_status() -> dict:
     with STATE_CACHE_LOCK:
         STATE_CACHE.update({k: v for k, v in by_id.items() if k in entity_ids})
     out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
-    return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id), "geo": {"lat": lat, "lon": lon}}
+    return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id), "geo": {"lat": lat, "lon": lon}, "demo": IS_DEMO}
 
 
 def parse_ha_url(ha_url: str) -> tuple:
@@ -625,8 +627,9 @@ def save_layout(new_layout: dict) -> dict:
         out = json.dumps(new_layout, ensure_ascii=False, indent=1)
         (BASE_DIR / "layout.json").write_text(out, encoding="utf-8")
         # Rechargement en mémoire
-        global LAYOUT
+        global LAYOUT, IS_DEMO
         LAYOUT = new_layout
+        IS_DEMO = not (BASE_DIR / "layout.json").exists()
         return {"ok": True, "backup": str(backup_path), "sensors": len(new_layout["sensors"])}
     except Exception as e:
         return {"ok": False, "error": str(e)}
