@@ -825,7 +825,7 @@ function buildDecor() {
         obj.scale.setScalar(f.scale || 1);
         obj.rotation.y = f.rotY || 0;
         obj.position.set(room.x + f.x*room.w, level.y_floor, room.z + f.z*room.d);
-        obj.traverse(ch => { if (ch.isMesh) ch.castShadow = false; });
+        obj.traverse(ch => { if (ch.isMesh) { ch.castShadow = false; ch.receiveShadow = true; } });
         obj.userData = { furnitureId: f.id };
         decorGroup.add(obj);
         modelObjects.push({ obj, f, roomId: f.room });
@@ -838,6 +838,7 @@ function buildDecor() {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(room.x + f.x*room.w, level.y_floor + f.h/2, room.z + f.z*room.d);
       mesh.castShadow = false;
+      mesh.receiveShadow = true;  // l'objet s'assombrit dans l'ombre des murs/portes
       mesh.userData = { furnitureId: f.id };
       decorGroup.add(mesh);
       furnitureMeshes.push({ mesh, roomId: room.id, f });
@@ -896,6 +897,7 @@ function buildDoors() {
       frameMat
     );
     lint.position.set(isV ? d.fixed : d.t, y + hgt - 0.035, isV ? d.t : d.fixed);
+    j1.castShadow = true; j2.castShadow = true; lint.castShadow = true;  // les cadres bloquent la lumière
     j1.userData = { doorId: d.id };
     j2.userData = { doorId: d.id };
     lint.userData = { doorId: d.id };
@@ -914,6 +916,7 @@ function buildDoors() {
       // Panneau posé devant le mur (offset de 6 cm vers l'intérieur)
       if (isV) panel.position.set(0.06, y + hgt / 2, sign * off);
       else panel.position.set(sign * off + 0.06, y + hgt / 2, 0);
+      panel.castShadow = true;  // le panneau de garage bloque la lumière quand il est fermé
       panelGroup.add(panel);
       doorsGroup.add(panelGroup);
       window._garageDoor = { group: panelGroup, mesh: panel, hingeX: 0, baseY: y + hgt / 2, target: 0, open: false, openSign: d.openSign || 1 };
@@ -931,6 +934,7 @@ function buildDoors() {
         ? new THREE.BoxGeometry(0.045, hgt - 0.03, d.width - 0.05)
         : new THREE.BoxGeometry(d.width - 0.05, hgt - 0.03, 0.045);
       const panel = new THREE.Mesh(panelGeo, panelMat);
+      panel.castShadow = true;  // le vantail bloque la lumière quand la porte est fermée
       const sign = d.hinge === 'a1' ? -1 : 1;  // offset vers le centre de l'ouverture
       const off = d.width / 2 - 0.03;
       if (isV) panel.position.set(0, y + hgt / 2, sign * off);
@@ -2747,6 +2751,7 @@ function connectSSE() {
             const entry = sensorMeshes.find(m => m.sensor === s);
             if (entry) drawSensorLabel(entry);
           }
+          refreshSensorColors();  // icônes + lumières 3D en direct (pas d'attente du polling)
           // Porte garage si concernée (entité éditable dans le layout)
           if (garageDoorEntity() && msg.entity === garageDoorEntity()) updateGarageDoor(msg.state);
           // Porte animée (état on = ouverte)
