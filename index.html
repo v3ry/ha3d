@@ -844,19 +844,7 @@ function buildDecor() {
     }
   });
 
-  // --- Porte garage (panneau qui tourne selon état) ---
-  const garage = rooms.find(r => r.id === 'garage');
-  if (garage) {
-    const doorGroup = new THREE.Group();
-    const doorMat = new THREE.MeshStandardMaterial({ color:0x3a4a6a, roughness:.6 });
-    const door = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.3, .12), doorMat);
-    door.position.set(garage.x + garage.w*.15, level.y_floor + 1.15, garage.z + .06);
-    doorGroup.add(door);
-    doorGroup.position.set(garage.x + garage.w*.15, 0, garage.z + .06);
-    door.position.set(0, level.y_floor + 1.15, 0);
-    decorGroup.add(doorGroup);
-    window._garageDoor = { group: doorGroup, mesh: door, hingeX: 0, baseY: level.y_floor + 1.15 };
-  }
+  // --- Porte garage : créée par buildDoors (porte réelle avec flag garage) ---
 }
 
 // ============ PORTES RÉELLES (cadres + vantaux pivotants) ============
@@ -875,6 +863,7 @@ function rebuildDecorVisual() {
   modelObjects = [];
   window._garageDoor = null;
   buildDecor();
+  buildDoors();  // recrée le panneau de garage (window._garageDoor) et les portes
 }
 // Chaque porte interrompt le mur correspondant (voir buildRooms) et est animée
 // par une entité HA (on = ouverte). Sans entité, elle reste fermée.
@@ -911,6 +900,25 @@ function buildDoors() {
     j2.userData = { doorId: d.id };
     lint.userData = { doorId: d.id };
     doorsGroup.add(j1, j2, lint);
+    // --- Panneau de garage (porte animée par rotation, flag garage) ---
+    if (d.garage) {
+      const panelGroup = new THREE.Group();
+      panelGroup.userData = { doorId: d.id };
+      const hingePt = d.hinge === 'a1' ? p1 : p0;
+      panelGroup.position.set(hingePt[0], 0, hingePt[1]);
+      const panelMat = new THREE.MeshStandardMaterial({ color: 0x3a4a6a, roughness: 0.6 });
+      const panelGeo = isV ? new THREE.BoxGeometry(0.12, hgt, d.width) : new THREE.BoxGeometry(d.width, hgt, 0.12);
+      const panel = new THREE.Mesh(panelGeo, panelMat);
+      const sign = d.hinge === 'a1' ? -1 : 1;
+      const off = d.width / 2;
+      // Panneau posé devant le mur (offset de 6 cm vers l'intérieur)
+      if (isV) panel.position.set(0.06, y + hgt / 2, sign * off);
+      else panel.position.set(sign * off + 0.06, y + hgt / 2, 0);
+      panelGroup.add(panel);
+      doorsGroup.add(panelGroup);
+      window._garageDoor = { group: panelGroup, mesh: panel, hingeX: 0, baseY: y + hgt / 2, target: 0, open: false, openSign: d.openSign || 1 };
+      return;  // pas de vantail pivotant ni de poignée
+    }
     // --- Vantail pivotant (sauf porte sectionnelle / ouverture brute) ---
     if (!d.noPanel) {
       const panelGroup = new THREE.Group();
@@ -1292,10 +1300,14 @@ function updateGarageDoor(state) {
   const gd = window._garageDoor;
   if (!gd) return;
   const open = state === 'on';
-  const target = open ? 1.9 : 0;  // rotation en radians (~110°)
-  // Interpolation douce dans la boucle d'animation
-  gd.target = target;
+  gd.target = open ? 1.9 * (gd.openSign || 1) : 0;  // rotation en radians (~110°)
   gd.open = open;
+}
+
+// Entité HA qui anime la porte de garage (éditable dans le layout)
+function garageDoorEntity() {
+  const d = (layout.doors || []).find(x => x.garage);
+  return d ? (d.entity || '') : '';
 }
 
 // ============ ALERTES VISUELLES ============
@@ -1919,9 +1931,7 @@ function updateRoomContent(room) {
     if (mo.roomId !== room.id) return;
     mo.obj.position.set(room.x + mo.f.x * room.w, level.y_floor, room.z + mo.f.z * room.d);
   });
-  if (room.id === 'garage' && window._garageDoor) {
-    window._garageDoor.group.position.set(room.x + room.w * 0.15, 0, room.z + 0.06);
-  }
+  // Portes (y compris garage) repositionnées par buildDoors via rebuildRoomsVisual
 }
 
 // ============ ÉDITION PORTES & OBJETS (modes 🚪 / 🛋️) ============
@@ -2006,7 +2016,9 @@ function openDoorPanel(door) {
        <option value="1" ${(door.openSign ?? 1) >= 0 ? 'selected' : ''}>+1 (vers l'intérieur)</option>
        <option value="-1" ${(door.openSign ?? 1) < 0 ? 'selected' : ''}>-1 (vers l'extérieur)</option>
      </select></label>` +
-    `<label class="dbg-field"><input type="checkbox" id="ed-nopanel" ${door.noPanel ? 'checked' : ''}> Ouverture brute (sans vantail)</label>` +
+    (door.garage
+      ? ''
+      : `<label class="dbg-field"><input type="checkbox" id="ed-nopanel" ${door.noPanel ? 'checked' : ''}> Ouverture brute (sans vantail)</label>`) +
     `<label class="dbg-field">Capteur associé (on = ouverte)<input id="ed-entity" value="${(door.entity || '').replace(/"/g, '&quot;')}" placeholder="ex: binary_sensor.porte"></label>`;
   const search = document.getElementById('dbg-edit-search');
   search.style.display = 'block';
@@ -2145,7 +2157,8 @@ function applyEdit() {
     door.height = clamp(parseFloat(document.getElementById('ed-height').value) || 2.1, 1.5, 4);
     door.hinge = document.getElementById('ed-hinge').value;
     door.openSign = parseInt(document.getElementById('ed-opensign').value, 10) || 1;
-    door.noPanel = document.getElementById('ed-nopanel').checked;
+    // Le panneau de garage est toujours présent (pas d'option "sans vantail")
+    if (!door.garage) door.noPanel = document.getElementById('ed-nopanel').checked;
     door.entity = document.getElementById('ed-entity').value.trim();
     buildDoors();
     msg.textContent = `💾 Porte « ${door.name || door.id} » mise à jour. Cliquez 💾 Sauvegarder pour écrire sur le serveur.`;
@@ -2675,9 +2688,12 @@ function applyStatusData(data) {
     if (st) s.st = st;
   });
   refreshSensorColors();
-  // Porte garage : trouver l'état du capteur porte
-  const doorSensor = sensors.find(s => s.cfg.entity === 'binary_sensor.ouverture_garage_contact');
-  if (doorSensor) updateGarageDoor(doorSensor.st.state);
+  // Porte garage : état du capteur associé (éditable dans le layout)
+  const gEntity = garageDoorEntity();
+  if (gEntity) {
+    const doorSensor = sensors.find(s => s.cfg.entity === gEntity);
+    if (doorSensor) updateGarageDoor(doorSensor.st.state);
+  }
   // Portes animées : états du snapshot
   if (data.doors) data.doors.forEach(d => { if (d.entity) doorStates[d.entity] = d.state; });
   updateAlerts(sensors);
@@ -2731,8 +2747,8 @@ function connectSSE() {
             const entry = sensorMeshes.find(m => m.sensor === s);
             if (entry) drawSensorLabel(entry);
           }
-          // Porte garage si concernée
-          if (msg.entity === 'binary_sensor.ouverture_garage_contact') updateGarageDoor(msg.state);
+          // Porte garage si concernée (entité éditable dans le layout)
+          if (garageDoorEntity() && msg.entity === garageDoorEntity()) updateGarageDoor(msg.state);
           // Porte animée (état on = ouverte)
           if (msg.entity && doorAnims.some(a => a.entity === msg.entity)) doorStates[msg.entity] = msg.state;
           updateAlerts(sensors);
