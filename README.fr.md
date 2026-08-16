@@ -88,7 +88,9 @@ python3 tools/check_config.py   # .env, connexion HA, validité du layout
 
 ## 🌍 Langues
 
-L'interface est disponible en **français** et en **anglais**. La langue est détectée automatiquement depuis votre navigateur (`navigator.language`) et peut être changée à tout moment avec le **sélecteur 🇫🇷/🇬🇧** en haut à gauche (HUD). Votre choix est mémorisé (`localStorage`).
+L'interface est disponible en **10 langues** : 🇫🇷 Français · 🇬🇧 English · 🇩🇪 Deutsch · 🇪🇸 Español · 🇮🇹 Italiano · 🇵🇹 Português · 🇳🇱 Nederlands · 🇵🇱 Polski · 🇹🇷 Türkçe · 🇷🇺 Русский.
+
+La langue est détectée automatiquement depuis votre navigateur (`navigator.language`) et peut être changée à tout moment avec le **sélecteur en haut à gauche** (HUD). Votre choix est mémorisé (`localStorage`).
 
 ## 🛡️ Sécurité
 

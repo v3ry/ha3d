@@ -45,17 +45,22 @@ jobs:
           global.document = { querySelectorAll: () => [] };
           vm.runInThisContext(src.slice(start, end));
           const keys = Object.keys(I18N.fr);
-          const missingEn = keys.filter(k => !I18N.en[k]);
+          const langs = Object.keys(I18N);
+          let missingEn = [];
+          for (const l of langs) {
+            const miss = keys.filter(k => !I18N[l][k]);
+            if (miss.length) missingEn.push(`${l}: ${miss.join(',')}`);
+          }
           const used = new Set();
           const re = /([^.\w])t\('([a-z0-9_.]+)'/g;
           let m;
           while ((m = re.exec(src)) !== null) used.add(m[2]);
           const missingDef = [...used].filter(k => !(I18N.fr[k] && I18N.en[k]));
           if (missingEn.length || missingDef.length) {
-            console.error('i18n incohérent — FR sans EN:', missingEn, '| utilisées sans définition:', missingDef);
+            console.error(`i18n incohérent (${langs.length} langues) — manquantes:`, missingEn, '| utilisées sans définition:', missingDef);
             process.exit(1);
           }
-          console.log(`i18n OK: ${keys.length} clés FR/EN, ${used.size} utilisées`);
+          console.log(`i18n OK: ${langs.length} langues, ${keys.length} clés, ${used.size} utilisées`);
           EOF
 
       - name: Validation du layout d'exemple
