@@ -80,5 +80,66 @@ class TestStatusEntry(unittest.TestCase):
         self.assertEqual(out["state"], "unavailable")
 
 
+class TestValidateLayout(unittest.TestCase):
+    def _valid(self):
+        return {
+            "house_name": "Test",
+            "levels": [{"name": "rdc", "y_floor": 0, "height": 2.6, "rooms": [
+                {"id": "salon", "name": "Salon", "x": 0, "z": 0, "w": 5, "d": 4, "color": "#fff"},
+            ]}],
+            "sensors": [{"entity": "sensor.a", "room": "salon"}],
+            "doors": [{"id": "p1", "t": 2, "width": 0.9, "room": "salon", "rotY": 0, "fixed": 0}],
+            "furniture": [],
+        }
+
+    def test_layout_valide(self):
+        self.assertEqual(h.validate_layout(self._valid()), (True, ""))
+
+    def test_layout_reel_valide(self):
+        # Le layout chargé par le serveur doit passer la validation
+        ok, err = h.validate_layout(h.LAYOUT)
+        self.assertTrue(ok, f"layout.json invalide : {err}")
+
+    def test_piece_sans_id(self):
+        l = self._valid()
+        l["levels"][0]["rooms"][0].pop("id")
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_id_duplique(self):
+        l = self._valid()
+        l["levels"][0]["rooms"].append(dict(l["levels"][0]["rooms"][0]))
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_polygone_trop_petit(self):
+        l = self._valid()
+        l["levels"][0]["rooms"][0]["pts"] = [[0, 0], [1, 0]]  # 2 sommets
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_nan_rejete(self):
+        l = self._valid()
+        l["levels"][0]["rooms"][0]["w"] = float("nan")
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_dimensions_trop_petites(self):
+        l = self._valid()
+        l["levels"][0]["rooms"][0]["w"] = 0.2
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_porte_invalide(self):
+        l = self._valid()
+        l["doors"][0]["width"] = 0
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_capteur_duplique(self):
+        l = self._valid()
+        l["sensors"].append({"entity": "sensor.a", "room": "salon"})
+        self.assertFalse(h.validate_layout(l)[0])
+
+    def test_objet_sans_id(self):
+        l = self._valid()
+        l["levels"][0]["furniture"] = [{"type": "box", "name": "x"}]
+        self.assertFalse(h.validate_layout(l)[0])
+
+
 if __name__ == "__main__":
     unittest.main()

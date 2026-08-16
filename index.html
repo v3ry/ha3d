@@ -1600,16 +1600,36 @@ function setDebugAxis(axis) {
   document.getElementById('debug-mode-rooms').classList.toggle('active', axis === 'rooms');
   document.getElementById('debug-mode-doors').classList.toggle('active', axis === 'doors');
   document.getElementById('debug-mode-objects').classList.toggle('active', axis === 'objects');
-  if (axis !== 'doors' && axis !== 'objects') closeEditPanel();
-  else {
+  if (axis === 'rooms') {
+    rebuildVertexHelpers();
+    openRoomsPanel();   // panneau création/édition (vide si rien n'est sélectionné)
+  } else if (axis === 'doors' || axis === 'objects') {
     document.getElementById('debug-sel').innerHTML =
       axis === 'doors'
         ? '🚪 Cliquez une porte pour l’éditer, drag = déplacer le long du mur. ➕ Nouveau = créer une porte.'
         : '🛋️ Cliquez un objet pour l’éditer, drag = déplacer. ➕ Nouveau = créer un objet.';
+    if (roomVertexHelpers) { scene.remove(roomVertexHelpers); roomVertexHelpers = null; }
+  } else {
+    closeEditPanel();
+    if (roomVertexHelpers) { scene.remove(roomVertexHelpers); roomVertexHelpers = null; }
   }
-  // Poignées de sommets : visibles uniquement en mode Pièces
-  if (axis === 'rooms') rebuildVertexHelpers();
-  else if (roomVertexHelpers) { scene.remove(roomVertexHelpers); roomVertexHelpers = null; }
+}
+
+// Panneau du mode Pièces : édition si une pièce est sélectionnée, sinon création
+function openRoomsPanel() {
+  if (editSel && editKind === 'room') { openRoomPanel(editSel.room); return; }
+  editKind = 'room';
+  editSel = null;
+  const panel = document.getElementById('debug-edit');
+  panel.style.display = 'block';
+  document.getElementById('dbg-edit-title').textContent = '🏠 Pièces';
+  document.getElementById('dbg-edit-fields').innerHTML =
+    '<div class="dbg-hint" style="font-size:12px;color:#8b949e">Cliquez une pièce pour l’éditer (drag intérieur = déplacer, coins = redimensionner, 🟡 = sommets), ou ➕ Nouvelle pièce.</div>';
+  document.getElementById('dbg-edit-add').textContent = '➕ Nouvelle pièce';
+  document.getElementById('dbg-edit-add').style.display = 'block';
+  document.getElementById('dbg-edit-del').style.display = 'none';
+  document.getElementById('dbg-edit-search').style.display = 'none';
+  document.getElementById('dbg-edit-results').style.display = 'none';
 }
 
 function debugPlaneAt(y) {
@@ -2169,7 +2189,7 @@ function openRoomPanel(room) {
       : '<div class="dbg-hint" style="font-size:12px;color:#8b949e">🔷 Convertir en polygone pour créer des formes libres (L, décrochés…).</div>');
   document.getElementById('dbg-edit-add').textContent = room.pts ? '➕ Point' : '🔷 Convertir';
   document.getElementById('dbg-edit-add').style.display = 'block';
-  document.getElementById('dbg-edit-del').style.display = 'none';  // pas de suppression de pièce (risqué)
+  document.getElementById('dbg-edit-del').style.display = 'block';  // suppression possible (avec avertissement)
   document.getElementById('dbg-edit-search').style.display = 'none';
   document.getElementById('dbg-edit-results').style.display = 'none';
 }
@@ -2202,10 +2222,64 @@ function addRoomVertex(room) {
     `➕ Sommet ajouté — déplacez la nouvelle 🟡 poignée.`;
 }
 
+function addRoom() {
+  pushUndo();
+  const lvl = layout.levels[0];
+  // Position : à droite de la bbox globale du plan
+  let minX = 0, minZ = 0, maxX = 10, maxZ = 10;
+  lvl.rooms.forEach(r => {
+    const x1 = r.pts ? Math.min(...r.pts.map(p => p[0])) : r.x;
+    const z1 = r.pts ? Math.min(...r.pts.map(p => p[1])) : r.z;
+    const x2 = r.pts ? Math.max(...r.pts.map(p => p[0])) : r.x + r.w;
+    const z2 = r.pts ? Math.max(...r.pts.map(p => p[1])) : r.z + r.d;
+    minX = Math.min(minX, x1); maxX = Math.max(maxX, x2);
+    minZ = Math.min(minZ, z1); maxZ = Math.max(maxZ, z2);
+  });
+  const room = {
+    id: 'piece_' + Date.now().toString(36),
+    name: 'Nouvelle pièce',
+    color: '#8b949e',
+    x: Math.round((maxX + 1) * 100) / 100,
+    z: Math.round(minZ * 100) / 100,
+    w: 4, d: 4,
+  };
+  lvl.rooms.push(room);
+  rebuildRoomsVisual();
+  rebuildDecorVisual();
+  rebuildVertexHelpers();
+  openRoomPanel(room);
+  document.getElementById('debug-sel').innerHTML =
+    `🆕 Pièce créée à droite du plan — déplacez-la (drag intérieur) et renommez-la dans le panneau.`;
+}
+
+function deleteRoom(room) {
+  const nSensors = layout.sensors.filter(s => s.room === room.id).length;
+  const nDoors = (layout.doors || []).filter(d => d.room === room.id).length;
+  const nObj = (layout.levels[0].furniture || []).filter(f => f.room === room.id).length;
+  let msg = `Supprimer la pièce « ${room.name} » ?`;
+  const lines = [];
+  if (nSensors) lines.push(`- ${nSensors} capteur(s) → déplacé(s) vers Extérieur`);
+  if (nObj) lines.push(`- ${nObj} objet(s) → supprimé(s)`);
+  if (nDoors) lines.push(`- ${nDoors} porte(s) → supprimée(s)`);
+  if (lines.length) msg += '\n\n' + lines.join('\n');
+  if (!confirm(msg)) return;
+  pushUndo();
+  layout.levels.forEach(l => { l.rooms = l.rooms.filter(r => r.id !== room.id); });
+  layout.sensors.forEach(s => { if (s.room === room.id) s.room = 'outdoor'; });
+  if (layout.levels[0].furniture) layout.levels[0].furniture = layout.levels[0].furniture.filter(f => f.room !== room.id);
+  if (layout.doors) layout.doors = layout.doors.filter(d => d.room !== room.id);
+  restoreLayout();
+  const m = document.getElementById('debug-msg');
+  m.style.color = '#58a6ff';
+  m.textContent = `🗑️ Pièce « ${room.name} » supprimée. Cliquez 💾 pour sauvegarder.`;
+  openRoomsPanel();
+}
+
 function addEditItem() {
   if (debugAxis === 'doors') return addDoor();
   if (debugAxis === 'objects') return addObject();
-  if (debugAxis === 'rooms' && editSel && editKind === 'room') {
+  if (debugAxis === 'rooms') {
+    if (!editSel || editKind !== 'room') return addRoom();
     const room = editSel.room;
     if (!room.pts) convertRoomToPolygon(room);
     else addRoomVertex(room);
@@ -2271,6 +2345,9 @@ function deleteEdit() {
     const lvl = layout.levels[0];
     if (lvl.furniture) lvl.furniture = lvl.furniture.filter(f => f.id !== editSel.f.id);
     rebuildDecorVisual();
+  } else if (editKind === 'room') {
+    deleteRoom(editSel.room);
+    return;
   }
   closeEditPanel();
   const msg = document.getElementById('debug-msg');

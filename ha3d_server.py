@@ -456,10 +456,86 @@ def get_entities(query: str = "") -> list:
     return {"count": len(out), "entities": out}
 
 
+def validate_layout(new_layout: dict) -> tuple:
+    """Valide la structure d'un layout avant sauvegarde. Retourne (ok, erreur)."""
+    if not isinstance(new_layout, dict):
+        return False, "layout n'est pas un objet JSON"
+    if "sensors" not in new_layout or not isinstance(new_layout["sensors"], list):
+        return False, "sensors manquant ou invalide"
+    levels = new_layout.get("levels")
+    if not isinstance(levels, list) or not levels:
+        return False, "levels manquant ou vide"
+    level = levels[0]
+    rooms = level.get("rooms", []) if isinstance(level, dict) else None
+    if not isinstance(rooms, list) or not rooms:
+        return False, "rooms manquant ou vide"
+
+    # Pièces
+    seen_ids = set()
+    for r in rooms:
+        rid = r.get("id") if isinstance(r, dict) else None
+        if not rid:
+            return False, "pièce sans id"
+        if rid in seen_ids:
+            return False, f"id de pièce dupliqué : {rid}"
+        seen_ids.add(rid)
+        pts = r.get("pts")
+        if pts:
+            if not isinstance(pts, list) or len(pts) < 3:
+                return False, f"pièce « {rid} » : polygone invalide (pts < 3 sommets)"
+            for p in pts:
+                if not isinstance(p, (list, tuple)) or len(p) != 2 or not all(
+                        isinstance(v, (int, float)) and v == v for v in p):  # rejette NaN
+                    return False, f"pièce « {rid} » : sommet invalide {p}"
+        else:
+            for k in ("x", "z", "w", "d"):
+                v = r.get(k)
+                if not isinstance(v, (int, float)) or v != v:
+                    return False, f"pièce « {rid} » : {k} invalide ({v})"
+            if r.get("w", 0) < 0.5 or r.get("d", 0) < 0.5:
+                return False, f"pièce « {rid} » : dimensions trop petites (< 0.5 m)"
+
+    # Portes
+    seen_door_ids = set()
+    for d in new_layout.get("doors", []):
+        did = d.get("id") if isinstance(d, dict) else None
+        if did and did in seen_door_ids:
+            return False, f"id de porte dupliqué : {did}"
+        if did:
+            seen_door_ids.add(did)
+        for k in ("t", "width"):
+            v = d.get(k)
+            if not isinstance(v, (int, float)) or v != v or v <= 0:
+                return False, f"porte « {did or '?'} » : {k} invalide ({v})"
+
+    # Capteurs
+    seen_sensors = set()
+    for s in new_layout["sensors"]:
+        e = s.get("entity") if isinstance(s, dict) else None
+        if not e:
+            return False, "capteur sans entity"
+        if e in seen_sensors:
+            return False, f"entité dupliquée : {e}"
+        seen_sensors.add(e)
+
+    # Objets
+    furn = level.get("furniture", []) if isinstance(level, dict) else []
+    seen_furn = set()
+    for f in furn:
+        fid = f.get("id") if isinstance(f, dict) else None
+        if not fid:
+            return False, "objet sans id"
+        if fid in seen_furn:
+            return False, f"id d'objet dupliqué : {fid}"
+        seen_furn.add(fid)
+    return True, ""
+
+
 def save_layout(new_layout: dict) -> dict:
     """Sauvegarde le layout (positions entités + caméra) dans layout.json, avec backup."""
-    if not isinstance(new_layout, dict) or "sensors" not in new_layout:
-        return {"ok": False, "error": "layout invalide (sensors manquant)"}
+    ok, err = validate_layout(new_layout)
+    if not ok:
+        return {"ok": False, "error": f"layout invalide : {err}"}
     try:
         # Backup du fichier actuel
         backup_dir = BASE_DIR.parent / "ha3d_layout_backups"
