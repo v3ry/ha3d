@@ -88,7 +88,9 @@ python3 tools/check_config.py   # .env, HA connection, layout validity
 
 ## 🌍 Languages
 
-The interface is available in **French** and **English**. Language is auto-detected from your browser (`navigator.language`) and can be switched anytime with the **🇫🇷/🇬🇧 selector** in the top-left HUD. Your choice is remembered (`localStorage`).
+The interface is available in **10 languages**: 🇫🇷 Français · 🇬🇧 English · 🇩🇪 Deutsch · 🇪🇸 Español · 🇮🇹 Italiano · 🇵🇹 Português · 🇳🇱 Nederlands · 🇵🇱 Polski · 🇹🇷 Türkçe · 🇷🇺 Русский.
+
+The language is auto-detected from your browser (`navigator.language`) and can be switched anytime with the **selector in the top-left HUD**. Your choice is remembered (`localStorage`).
 
 ## 🛡️ Security
 
