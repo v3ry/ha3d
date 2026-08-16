@@ -1,0 +1,20 @@
+# Dockerfile — fichiers exclus de l'image
+.git
+.gitignore
+.github
+__pycache__
+*.pyc
+.venv
+venv
+*.log
+
+# Secrets et données perso (jamais dans l'image)
+.env
+.env.*
+!.env.example
+layout.json
+ha3d_layout_backups/
+
+# Docs
+README.md
+SECURITY.md
