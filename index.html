@@ -810,8 +810,13 @@ function buildDoors() {
     const jambGeo = new THREE.BoxGeometry(0.07, hgt, 0.07);
     const j1 = new THREE.Mesh(jambGeo, frameMat); j1.position.set(p0[0], y + hgt / 2, p0[1]);
     const j2 = new THREE.Mesh(jambGeo, frameMat); j2.position.set(p1[0], y + hgt / 2, p1[1]);
-    const lint = new THREE.Mesh(new THREE.BoxGeometry(d.width + 0.14, 0.07, 0.07), frameMat);
-    lint.position.set(d.t, y + hgt - 0.035, d.fixed);
+    // Linteau orienté le long de l'ouverture (large en X : mur horizontal ; large en Z : mur vertical)
+    const lint = new THREE.Mesh(
+      isV ? new THREE.BoxGeometry(0.07, 0.07, d.width + 0.14)
+          : new THREE.BoxGeometry(d.width + 0.14, 0.07, 0.07),
+      frameMat
+    );
+    lint.position.set(isV ? d.fixed : d.t, y + hgt - 0.035, isV ? d.t : d.fixed);
     doorsGroup.add(j1, j2, lint);
     // --- Vantail pivotant (sauf porte sectionnelle / ouverture brute) ---
     if (!d.noPanel) {
@@ -819,7 +824,11 @@ function buildDoors() {
       const hingePt = d.hinge === 'a1' ? p1 : p0;
       panelGroup.position.set(hingePt[0], 0, hingePt[1]);
       const panelMat = new THREE.MeshStandardMaterial({ color: 0xa58a63, roughness: 0.5 });
-      const panel = new THREE.Mesh(new THREE.BoxGeometry(d.width - 0.05, hgt - 0.03, 0.045), panelMat);
+      // Vantail orienté selon le mur : fine en X (mur vertical) ou fine en Z (mur horizontal)
+      const panelGeo = isV
+        ? new THREE.BoxGeometry(0.045, hgt - 0.03, d.width - 0.05)
+        : new THREE.BoxGeometry(d.width - 0.05, hgt - 0.03, 0.045);
+      const panel = new THREE.Mesh(panelGeo, panelMat);
       const sign = d.hinge === 'a1' ? -1 : 1;  // offset vers le centre de l'ouverture
       const off = d.width / 2 - 0.03;
       if (isV) panel.position.set(0, y + hgt / 2, sign * off);
@@ -2175,14 +2184,22 @@ function updateDayNight() {
 
 // ============ ÉTIQUETTES ANTI-CHEVAUCHEMENT ============
 // Projette les étiquettes à l'écran et écarte celles qui se chevauchent.
+// Le repositionnement monde est ancré sur la position du CAPTEUR et borné
+// (MAX_OFF) : les étiquettes ne dérivent plus quand la caméra monte/descend.
+const LABEL_MAX_OFF = 3.0;  // mètres max de déplacement horizontal depuis le capteur
+
 function declutterLabels() {
   const vis = sensorMeshes.filter(e => e.sprite && e.sprite.visible);
   if (vis.length < 2) return;
   const rect = renderer.domElement.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
+  // Projection de la position de base (capteur + hauteur d'étiquette) — stable
   const items = vis.map(e => {
-    const v = e.sprite.position.clone().project(camera);
-    return { e, x: (v.x * 0.5 + 0.5) * rect.width, y: (-v.y * 0.5 + 0.5) * rect.height };
+    const b = e.mesh.position;
+    const v = new THREE.Vector3(b.x, e.sprite.position.y, b.z).project(camera);
+    const sx = (v.x * 0.5 + 0.5) * rect.width;
+    const sy = (-v.y * 0.5 + 0.5) * rect.height;
+    return { e, base: new THREE.Vector3(b.x, e.sprite.position.y, b.z), sx, sy, x: sx, y: sy };
   });
   const MIN = 145;  // px d'écartement minimal (étiquettes ~120-140 px de large)
   for (let iter = 0; iter < 20; iter++) {
@@ -2204,16 +2221,22 @@ function declutterLabels() {
     }
     if (!moved) break;
   }
-  // Repositionne les sprites dans le monde (même hauteur Y, rayon caméra)
+  // Convertit l'offset écran en offset MONDE horizontal, borné à LABEL_MAX_OFF
   items.forEach(it => {
-    const v = new THREE.Vector3((it.x / rect.width) * 2 - 1, -(it.y / rect.height) * 2 + 1, 0.5);
-    v.unproject(camera);
-    const dir = v.sub(camera.position).normalize();
+    const dsx = it.x - it.sx, dsy = it.y - it.sy;
+    if (!dsx && !dsy) return;
+    const ndc = new THREE.Vector3((it.x / rect.width) * 2 - 1, -(it.y / rect.height) * 2 + 1, 0.5);
+    ndc.unproject(camera);
+    const dir = ndc.sub(camera.position).normalize();
     if (Math.abs(dir.y) < 1e-4) return;  // caméra à hauteur des étiquettes : on garde la position
-    const y = it.e.sprite.position.y;
-    const t = (y - camera.position.y) / dir.y;
-    it.e.sprite.position.x = camera.position.x + dir.x * t;
-    it.e.sprite.position.z = camera.position.z + dir.z * t;
+    const t = (it.base.y - camera.position.y) / dir.y;
+    const wx = camera.position.x + dir.x * t;
+    const wz = camera.position.z + dir.z * t;
+    let dx = wx - it.base.x, dz = wz - it.base.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > LABEL_MAX_OFF) { dx *= LABEL_MAX_OFF / dist; dz *= LABEL_MAX_OFF / dist; }
+    it.e.sprite.position.x = it.base.x + dx;
+    it.e.sprite.position.z = it.base.z + dz;
   });
 }
 
