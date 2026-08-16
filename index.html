@@ -183,7 +183,7 @@
 <canvas id="scene3d"></canvas>
 
 <div id="hud">
-  <h1>🏠 Maison — L'Arbresle</h1>
+  <h1 id="hud-title">🏠 Ma maison</h1>
   <div class="sub" id="hud-sub">Chargement des capteurs…</div>
   <div id="sse-indicator" title="Flux temps réel : connexion…">🟢</div>
   <div class="legend" id="legend"></div>
@@ -363,8 +363,14 @@ async function init() {
   bindUI();
   bindDebugDrag();
   setTimeout(declutterLabels, 300);  // après le premier rendu
+  document.getElementById('hud-title').textContent = `🏠 ${l.house_name || 'Ma maison'}`;
   document.getElementById('hud-sub').textContent =
     `${l.house_name} · ${(s.sensors||[]).length} capteurs`;
+  // Coordonnées pour le jour/nuit saisonnier : depuis /api/status (env ou HA config)
+  if (s.geo && s.geo.lat != null && s.geo.lon != null) {
+    HA_LAT = s.geo.lat;
+    HA_LON = s.geo.lon;
+  }
   refreshStatus();
   connectSSE();  // temps réel (WebSocket HA → SSE)
   setInterval(refreshStatus, 60000);  // fallback si SSE indisponible
@@ -386,9 +392,10 @@ function addLights() {
 // ============ MODE JOUR / NUIT SAISONNIER ============
 let dayNightMode = 'auto';  // 'auto' | 'day' | 'night'
 
-// Position géographique de la maison (L'Arbresle)
-const HA_LAT = 45.83;
-const HA_LON = 4.62;
+// Position géographique de la maison (auto-détectée depuis HA via /api/status,
+// ou variables d'environnement HA3D_LAT / HA3D_LON — voir .env.example)
+let HA_LAT = 45.83;
+let HA_LON = 4.62;
 
 // Position du soleil (méthode NOAA simplifiée) → { elev: degrés, az: degrés depuis le nord horaire }
 // az : 0 = nord, 90 = est, 180 = sud, 270 = ouest

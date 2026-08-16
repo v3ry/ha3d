@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Client websocket minimal pour l'API Lovelace de Home Assistant (pur Python, sans dépendance)."""
 import base64, hashlib, json, os, socket, struct, sys
+from pathlib import Path
 
 def load_env():
     env = {}
-    p = "/home/hermes/.env"
-    if os.path.exists(p):
+    for p in (Path(__file__).resolve().parent / ".env", Path.home() / ".env"):
+        if not p.exists():
+            continue
         for line in open(p):
             line = line.strip()
             if line and "=" in line and not line.startswith("#"):
@@ -68,7 +70,7 @@ class Ws:
 
 def main():
     env = load_env()
-    url = env.get("HASS_URL") or env.get("HA_URL") or "http://192.168.0.139:8123"
+    url = env.get("HASS_URL") or env.get("HA_URL") or os.environ.get("HASS_URL") or "http://localhost:8123"
     token = env.get("HA_TOKEN") or env.get("HASS_TOKEN")
     if not token: sys.exit("token introuvable")
     host = url.replace("http://", "").replace("https://", "").split(":")[0]

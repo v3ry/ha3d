@@ -11,7 +11,7 @@ import ha3d_server as h
 
 class TestParseHaUrl(unittest.TestCase):
     def test_http_simple(self):
-        self.assertEqual(h.parse_ha_url("http://192.168.0.139:8123"), ("192.168.0.139", 8123))
+        self.assertEqual(h.parse_ha_url("http://192.168.1.50:8123"), ("192.168.1.50", 8123))
 
     def test_https_avec_chemin(self):
         self.assertEqual(h.parse_ha_url("https://ha.example.com:8443/"), ("ha.example.com", 8443))

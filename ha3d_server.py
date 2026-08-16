@@ -16,13 +16,15 @@ from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 PORT = int(os.environ.get("MAISON3D_PORT", "9125"))
-HOST = os.environ.get("MAISON3D_HOST", "192.168.0.137")
+HOST = os.environ.get("MAISON3D_HOST", "127.0.0.1")
 
-# --- HA credentials (même source que les scripts HVAC) ---------------------
+# --- HA credentials ---------------------------------------------------------
+# Sources : variables d'environnement, ou fichier .env (./.env puis ~/.env)
 def _load_env():
     env = {}
-    env_file = Path("/home/hermes/.env")
-    if env_file.exists():
+    for env_file in (BASE_DIR / ".env", Path.home() / ".env"):
+        if not env_file.exists():
+            continue
         for line in env_file.read_text().splitlines():
             line = line.strip()
             if line and "=" in line and not line.startswith("#"):
@@ -31,8 +33,9 @@ def _load_env():
     return env
 
 ENV = _load_env()
-HA_URL = (ENV.get("HASS_URL") or ENV.get("HA_URL") or "http://192.168.0.139:8123").rstrip("/")
-HA_TOKEN = ENV.get("HASS_TOKEN") or ENV.get("HA_TOKEN")
+HA_URL = (ENV.get("HASS_URL") or ENV.get("HA_URL") or os.environ.get("HASS_URL")
+          or "http://localhost:8123").rstrip("/")
+HA_TOKEN = ENV.get("HASS_TOKEN") or ENV.get("HA_TOKEN") or os.environ.get("HASS_TOKEN")
 
 
 def ha_headers():
@@ -69,7 +72,37 @@ def get_history(entity_id: str, hours: int = 24) -> dict:
 
 
 # --- Layout + capteurs ------------------------------------------------------
-LAYOUT = json.loads((BASE_DIR / "layout.json").read_text(encoding="utf-8"))
+# Si layout.json est absent (installation fraîche), génère une maison de démo
+def _demo_layout():
+    return {
+        "house_name": "Ma maison (démo)",
+        "levels": [{
+            "name": "rdc", "y_floor": 0, "height": 2.6, "rooms": [
+                {"id": "salon", "name": "Salon", "x": 0, "z": 0, "w": 5, "d": 4, "color": "#f0e68c"},
+                {"id": "cuisine", "name": "Cuisine", "x": 5, "z": 0, "w": 3, "d": 4, "color": "#98fb98"},
+                {"id": "chambre", "name": "Chambre", "x": 0, "z": 4, "w": 4, "d": 3, "color": "#87ceeb"},
+            ],
+            "furniture": [
+                {"id": "demo_canap", "type": "box", "name": "Canapé", "room": "salon", "x": 0.3, "z": 0.5, "w": 2.0, "d": 0.8, "h": 0.8, "c": "#c9a227"},
+                {"id": "demo_table", "type": "box", "name": "Table", "room": "cuisine", "x": 0.5, "z": 0.5, "w": 1.2, "d": 0.8, "h": 0.75, "c": "#8b5a2b"},
+                {"id": "demo_lit", "type": "box", "name": "Lit", "room": "chambre", "x": 0.3, "z": 0.4, "w": 1.6, "d": 2.0, "h": 0.5, "c": "#6a9ec4"},
+            ],
+        }],
+        "sensors": [],
+        "doors": [],
+        "default_camera": {"pos": [-15, 12, 10], "target": [4.5, 1, 10]},
+    }
+
+
+def _load_layout():
+    f = BASE_DIR / "layout.json"
+    if f.exists():
+        return json.loads(f.read_text(encoding="utf-8"))
+    print("layout.json absent — utilisation de la maison de démonstration")
+    return _demo_layout()
+
+
+LAYOUT = _load_layout()
 
 # Cache temps réel : entité -> {state, unit, attrs} alimenté par le WebSocket HA
 STATE_CACHE = {}
@@ -148,25 +181,45 @@ def _doors_status(by_id: dict) -> list:
     return out
 
 
+def _status_geo():
+    """Coordonnées de la maison : env HA3D_LAT/HA3D_LON, sinon depuis la config HA."""
+    lat = os.environ.get("HA3D_LAT")
+    lon = os.environ.get("HA3D_LON")
+    if lat and lon:
+        try:
+            return float(lat), float(lon)
+        except ValueError:
+            pass
+    try:
+        cfg = fetch_ha("/api/config")
+        if isinstance(cfg, dict) and cfg.get("latitude") is not None:
+            return float(cfg["latitude"]), float(cfg["longitude"])
+    except Exception:
+        pass
+    return None, None
+
+
 def get_status() -> dict:
     """Renvoie l'état en direct de chaque capteur configuré.
 
     Utilise le cache temps réel (WebSocket) s'il est chaud, sinon bascule
     sur un fetch REST (fallback au démarrage / si le WS est down).
+    Inclut les coordonnées géographiques (jour/nuit saisonnier côté client).
     """
+    lat, lon = _status_geo()
     with STATE_CACHE_LOCK:
         cache_hot = len(STATE_CACHE) >= len(_tracked_ids()) * 0.5
     if cache_hot:
         by_id = dict(STATE_CACHE)
         out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
-        return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id)}
+        return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id), "geo": {"lat": lat, "lon": lon}}
 
     # Fallback REST
     entity_ids = _tracked_ids()
     try:
         states = fetch_ha("/api/states")
     except Exception as e:
-        return {"error": str(e), "sensors": []}
+        return {"error": str(e), "sensors": [], "geo": {"lat": lat, "lon": lon}}
     by_id = {}
     for st in states:
         eid = st.get("entity_id", "")
@@ -188,7 +241,7 @@ def get_status() -> dict:
     with STATE_CACHE_LOCK:
         STATE_CACHE.update({k: v for k, v in by_id.items() if k in entity_ids})
     out = [_status_entry(s, by_id) for s in LAYOUT["sensors"]]
-    return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id)}
+    return {"house_name": LAYOUT["house_name"], "sensors": out, "doors": _doors_status(by_id), "geo": {"lat": lat, "lon": lon}}
 
 
 def parse_ha_url(ha_url: str) -> tuple:

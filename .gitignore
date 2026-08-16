@@ -2,6 +2,11 @@
 .env
 *.env
 .env.*
+!.env.example
+
+# Layout local (contient les données de TA maison : pièces, entités HA, GPS)
+# → copier layout.example.json vers layout.json pour démarrer
+layout.json
 
 # Python
 __pycache__/
