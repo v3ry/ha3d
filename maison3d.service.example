@@ -1,0 +1,17 @@
+# Maison 3D — service systemd (exemple). Copier dans ~/.config/systemd/user/
+# puis : systemctl --user daemon-reload && systemctl --user enable --now maison3d
+[Unit]
+Description=Maison 3D - visualiseur 3D des capteurs Home Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adapter le chemin d'installation du projet
+WorkingDirectory=/opt/ha3d
+ExecStart=/usr/bin/python3 /opt/ha3d/ha3d_server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

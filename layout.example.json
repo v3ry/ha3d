@@ -1,0 +1,25 @@
+{
+  "house_name": "Ma maison (démo)",
+  "levels": [
+    {
+      "name": "rdc",
+      "y_floor": 0,
+      "height": 2.6,
+      "rooms": [
+        {"id": "salon", "name": "Salon", "x": 0, "z": 0, "w": 6, "d": 4, "color": "#f0e68c"},
+        {"id": "cuisine", "name": "Cuisine", "x": 6, "z": 0, "w": 3, "d": 4, "color": "#98fb98"},
+        {"id": "chambre", "name": "Chambre", "x": 0, "z": 4, "w": 4, "d": 3, "color": "#87ceeb"}
+      ],
+      "furniture": [
+        {"id": "demo_canap", "type": "box", "name": "Canapé", "room": "salon", "x": 0.3, "z": 0.5, "w": 2.0, "d": 0.8, "h": 0.8, "c": "#c9a227"},
+        {"id": "demo_table", "type": "box", "name": "Table", "room": "cuisine", "x": 0.5, "z": 0.5, "w": 1.2, "d": 0.8, "h": 0.75, "c": "#8b5a2b"},
+        {"id": "demo_lit", "type": "box", "name": "Lit", "room": "chambre", "x": 0.3, "z": 0.4, "w": 1.6, "d": 2.0, "h": 0.5, "c": "#6a9ec4"}
+      ]
+    }
+  ],
+  "sensors": [
+    {"entity": "sensor.temperature_salon", "name": "Température salon", "room": "salon", "pos": [3, 1.6, 2]}
+  ],
+  "doors": [],
+  "default_camera": {"pos": [-15, 12, 10], "target": [4.5, 1, 10]}
+}

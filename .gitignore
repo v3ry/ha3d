@@ -1,0 +1,31 @@
+# Secrets — ne jamais committer
+.env
+*.env
+.env.*
+!.env.example
+
+# Layout local (contient les données de TA maison : pièces, entités HA, GPS)
+# → copier layout.example.json vers layout.json pour démarrer
+layout.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Backups
+ha3d_layout_backups/
+backup_*/
+*.log
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs serveur
+/tmp/*.log
