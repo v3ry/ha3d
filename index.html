@@ -164,6 +164,12 @@
     #hud .legend { grid-template-columns:1fr; }
     #detail { right:10px; left:10px; top:auto; bottom:60px; }
   }
+  .dbg-edit { margin-top:8px; padding:8px; border:1px solid #30363d; border-radius:8px; background:#161b22; }
+  .dbg-field { display:flex; flex-direction:column; gap:2px; margin:6px 0; font-size:12px; color:#8b949e; }
+  .dbg-field input, .dbg-field select { background:#0d1117; color:#e6edf3; border:1px solid #30363d; border-radius:6px; padding:4px 6px; font-size:13px; }
+  .dbg-field input[type="checkbox"] { width:auto; align-self:flex-start; }
+  .dbg-edit-btns { display:flex; gap:6px; margin-top:8px; }
+  .dbg-edit-btns button { flex:1; }
 </style>
 </head>
 <body>
@@ -211,8 +217,21 @@
     <button id="debug-mode-xz" class="active">↔ Sol (X/Z)</button>
     <button id="debug-mode-y">↕ Hauteur (Y)</button>
     <button id="debug-mode-rooms">🏠 Pièces</button>
+    <button id="debug-mode-doors">🚪 Portes</button>
+    <button id="debug-mode-objects">🛋️ Objets</button>
   </div>
   <div class="dbg-sel" id="debug-sel">Aucun objet sélectionné.</div>
+  <div class="dbg-edit" id="debug-edit" style="display:none">
+    <div class="dbg-sep" id="dbg-edit-title">—</div>
+    <div id="dbg-edit-fields"></div>
+    <div class="dbg-edit-btns">
+      <button id="dbg-edit-apply">💾 Appliquer</button>
+      <button id="dbg-edit-del">🗑️ Supprimer</button>
+      <button id="dbg-edit-add">➕ Nouveau</button>
+    </div>
+    <input id="dbg-edit-search" placeholder="🔍 Capteur associé (recherche HA)…" spellcheck="false" style="display:none">
+    <div class="dbg-results" id="dbg-edit-results" style="display:none"></div>
+  </div>
   <div class="dbg-campos" id="debug-campos"></div>
   <button id="debug-export">📋 Exporter les positions</button>
   <div class="dbg-cam">
@@ -736,39 +755,44 @@ function buildDecor() {
     floorMeshes.push({ mesh: floor, roomId: room.id, w: room.w, d: room.d });
   });
 
-  // --- Meubles : boîtes simples + modèles 3D (glTF) ---
+  // --- Meubles : boîtes simples + modèles 3D (glTF) — depuis level.furniture ---
   const gltfLoader = new THREE.GLTFLoader();
-  const MODEL_PLACES = [
-    // { model, room, x, z, rotY, scale }
-    { model:'SheenChair', room:'bureau', x:.55, z:.42, rotY:Math.PI, scale:1.6 },
-    { model:'Duck', room:'piece_plante', x:.4, z:.6, rotY:0, scale:.02 },
-  ];
-  MODEL_PLACES.forEach(mp => {
-    const room = rooms.find(r => r.id === mp.room);
+  // Fallback si le layout n'a pas encore de furniture (anciennes constantes)
+  function legacyFurniture() {
+    const out = [];
+    Object.entries(FURNITURE).forEach(([roomId, items]) => items.forEach(it => {
+      out.push({ id: roomId + '_' + (it.name||'obj').toLowerCase().replace(/[^a-z0-9]+/g,'-'), type:'box', name:it.name, room:roomId, x:it.x, z:it.z, w:it.w, d:it.d, h:it.h, c:it.c });
+    }));
+    MODEL_PLACES.forEach(mp => out.push({ id: mp.room + '_' + mp.model.toLowerCase(), type:'model', name:mp.model, model:mp.model, room:mp.room, x:mp.x, z:mp.z, rotY:mp.rotY, scale:mp.scale }));
+    return out;
+  }
+  const furn = (level.furniture && level.furniture.length) ? level.furniture : legacyFurniture();
+  furn.forEach(f => {
+    const room = rooms.find(r => r.id === f.room);
     if (!room) return;
-    gltfLoader.load('/models/' + mp.model + '.glb', gltf => {
-      const obj = gltf.scene;
-      obj.scale.setScalar(mp.scale);
-      obj.rotation.y = mp.rotY;
-      obj.position.set(room.x + mp.x*room.w, level.y_floor, room.z + mp.z*room.d);
-      obj.traverse(ch => { if (ch.isMesh) ch.castShadow = false; });
-      decorGroup.add(obj);
-      modelObjects.push({ obj, mp, roomId: mp.room });
-    }, undefined, err => {
-      console.warn('Modèle 3D non chargé:', mp.model, err);
-    });
-  });
-
-  rooms.forEach(room => {
-    (FURNITURE[room.id] || []).forEach(f => {
+    if (f.type === 'model' && f.model) {
+      gltfLoader.load('/models/' + f.model + '.glb', gltf => {
+        const obj = gltf.scene;
+        obj.scale.setScalar(f.scale || 1);
+        obj.rotation.y = f.rotY || 0;
+        obj.position.set(room.x + f.x*room.w, level.y_floor, room.z + f.z*room.d);
+        obj.traverse(ch => { if (ch.isMesh) ch.castShadow = false; });
+        obj.userData = { furnitureId: f.id };
+        decorGroup.add(obj);
+        modelObjects.push({ obj, f, roomId: f.room });
+      }, undefined, err => {
+        console.warn('Modèle 3D non chargé:', f.model, err);
+      });
+    } else {
       const geo = new THREE.BoxGeometry(f.w, f.h, f.d);
-      const mat = new THREE.MeshStandardMaterial({ color:f.c, roughness:.8, metalness:.05 });
+      const mat = new THREE.MeshStandardMaterial({ color: f.c || '#888888', roughness:.8, metalness:.05 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(room.x + f.x*room.w, level.y_floor + f.h/2, room.z + f.z*room.d);
       mesh.castShadow = false;
+      mesh.userData = { furnitureId: f.id };
       decorGroup.add(mesh);
       furnitureMeshes.push({ mesh, roomId: room.id, f });
-    });
+    }
   });
 
   // --- Porte garage (panneau qui tourne selon état) ---
@@ -787,6 +811,22 @@ function buildDecor() {
 }
 
 // ============ PORTES RÉELLES (cadres + vantaux pivotants) ============
+// Reconstruit tout le décor (sols, meubles, modèles, porte garage) après édition d'objets
+function rebuildDecorVisual() {
+  while (decorGroup.children.length) {
+    const c = decorGroup.children.pop();
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) {
+      if (c.material.map) c.material.map.dispose();
+      c.material.dispose();
+    }
+  }
+  floorMeshes = [];
+  furnitureMeshes = [];
+  modelObjects = [];
+  window._garageDoor = null;
+  buildDecor();
+}
 // Chaque porte interrompt le mur correspondant (voir buildRooms) et est animée
 // par une entité HA (on = ouverte). Sans entité, elle reste fermée.
 function buildDoors() {
@@ -799,6 +839,7 @@ function buildDoors() {
   const level = layout.levels[0];
   const y = level.y_floor;
   (layout.doors || []).forEach(d => {
+    if (!d.id) d.id = 'porte_' + Math.random().toString(36).slice(2, 8);
     const isV = Math.abs((d.rotY || 0) - Math.PI / 2) < DOOR_EPS_ROT;  // mur vertical (ligne x=fixed)
     const half = d.width / 2;
     const hgt = d.height || 2.1;
@@ -817,10 +858,14 @@ function buildDoors() {
       frameMat
     );
     lint.position.set(isV ? d.fixed : d.t, y + hgt - 0.035, isV ? d.t : d.fixed);
+    j1.userData = { doorId: d.id };
+    j2.userData = { doorId: d.id };
+    lint.userData = { doorId: d.id };
     doorsGroup.add(j1, j2, lint);
     // --- Vantail pivotant (sauf porte sectionnelle / ouverture brute) ---
     if (!d.noPanel) {
       const panelGroup = new THREE.Group();
+      panelGroup.userData = { doorId: d.id };
       const hingePt = d.hinge === 'a1' ? p1 : p0;
       panelGroup.position.set(hingePt[0], 0, hingePt[1]);
       const panelMat = new THREE.MeshStandardMaterial({ color: 0xa58a63, roughness: 0.5 });
@@ -1442,6 +1487,11 @@ function bindUI() {
   document.getElementById('debug-mode-xz').onclick = () => setDebugAxis('xz');
   document.getElementById('debug-mode-y').onclick = () => setDebugAxis('y');
   document.getElementById('debug-mode-rooms').onclick = () => setDebugAxis('rooms');
+  document.getElementById('debug-mode-doors').onclick = () => setDebugAxis('doors');
+  document.getElementById('debug-mode-objects').onclick = () => setDebugAxis('objects');
+  document.getElementById('dbg-edit-apply').onclick = applyEdit;
+  document.getElementById('dbg-edit-del').onclick = deleteEdit;
+  document.getElementById('dbg-edit-add').onclick = () => { if (debugAxis === 'doors') addDoor(); else addObject(); };
   document.getElementById('debug-export').onclick = exportDebugPositions;
   document.getElementById('debug-cam-set').onclick = setDefaultCameraFromView;
   document.getElementById('debug-save').onclick = saveLayoutToServer;
@@ -1480,6 +1530,15 @@ function setDebugAxis(axis) {
   document.getElementById('debug-mode-xz').classList.toggle('active', axis === 'xz');
   document.getElementById('debug-mode-y').classList.toggle('active', axis === 'y');
   document.getElementById('debug-mode-rooms').classList.toggle('active', axis === 'rooms');
+  document.getElementById('debug-mode-doors').classList.toggle('active', axis === 'doors');
+  document.getElementById('debug-mode-objects').classList.toggle('active', axis === 'objects');
+  if (axis !== 'doors' && axis !== 'objects') closeEditPanel();
+  else {
+    document.getElementById('debug-sel').innerHTML =
+      axis === 'doors'
+        ? '🚪 Cliquez une porte pour l’éditer, drag = déplacer le long du mur. ➕ Nouveau = créer une porte.'
+        : '🛋️ Cliquez un objet pour l’éditer, drag = déplacer. ➕ Nouveau = créer un objet.';
+  }
 }
 
 function debugPlaneAt(y) {
@@ -1520,6 +1579,16 @@ function bindDebugDrag() {
   el.addEventListener('pointerdown', (evt) => {
     if (!debugMode) return;
     if (debugAxis === 'rooms') { startRoomEdit(evt); return; }
+    if (debugAxis === 'doors') {
+      const door = pickDoor(evt);
+      if (door) { openDoorPanel(door); startDoorDrag(evt, door); }
+      return;
+    }
+    if (debugAxis === 'objects') {
+      const f = pickObject(evt);
+      if (f) { openObjectPanel(f); startObjectDrag(evt, f); }
+      return;
+    }
     const s = pickSensor(evt);
     if (!s) return;
     const entry = sensorMeshes.find(m => m.sensor === s);
@@ -1539,6 +1608,11 @@ function bindDebugDrag() {
       `🖱️ <b>${name}</b> — déplacez la souris…`;
   });
   el.addEventListener('pointermove', (evt) => {
+    if (editDrag) {
+      if (editDrag.kind === 'door') continueDoorDrag(evt);
+      else if (editDrag.kind === 'object') continueObjectDrag(evt);
+      return;
+    }
     if (debugRoomEdit) { continueRoomEdit(evt); return; }
     if (!debugDrag) return;
     const hit = rayToPlane(evt, debugDrag.plane);
@@ -1564,6 +1638,14 @@ function bindDebugDrag() {
       `🖱️ <b>${name}</b><br>📍 x=${p.x.toFixed(2)} · y=${p.y.toFixed(2)} · z=${p.z.toFixed(2)}`;
   });
   el.addEventListener('pointerup', (evt) => {
+    if (editDrag) {
+      controls.enabled = true;
+      el.classList.remove('dragging');
+      el.releasePointerCapture(evt.pointerId);
+      if (editDrag.kind === 'door') endDoorDrag();
+      else if (editDrag.kind === 'object') endObjectDrag();
+      return;
+    }
     if (debugRoomEdit) {
       controls.enabled = true;
       el.classList.remove('dragging');
@@ -1719,11 +1801,322 @@ function updateRoomContent(room) {
   });
   modelObjects.forEach(mo => {
     if (mo.roomId !== room.id) return;
-    mo.obj.position.set(room.x + mo.mp.x * room.w, level.y_floor, room.z + mo.mp.z * room.d);
+    mo.obj.position.set(room.x + mo.f.x * room.w, level.y_floor, room.z + mo.f.z * room.d);
   });
   if (room.id === 'garage' && window._garageDoor) {
     window._garageDoor.group.position.set(room.x + room.w * 0.15, 0, room.z + 0.06);
   }
+}
+
+// ============ ÉDITION PORTES & OBJETS (modes 🚪 / 🛋️) ============
+let editKind = null;      // 'door' | 'object' | null
+let editSel = null;       // { door } ou { f }
+let editDrag = null;      // drag en cours (porte ou objet)
+
+function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+
+function closeEditPanel() {
+  document.getElementById('debug-edit').style.display = 'none';
+  editSel = null;
+  editKind = null;
+}
+
+function roomOf(roomId) {
+  return layout.levels.flatMap(l => l.rooms).find(r => r.id === roomId) || null;
+}
+function doorById(id) {
+  return (layout.doors || []).find(d => d.id === id) || null;
+}
+function furnitureById(id) {
+  const lvl = layout.levels[0];
+  if (!lvl.furniture) return null;
+  return lvl.furniture.find(f => f.id === id) || null;
+}
+
+function pickDoor(evt) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(doorsGroup.children, true);
+  for (const h of hits) {
+    let o = h.object;
+    while (o) {
+      if (o.userData && o.userData.doorId) return doorById(o.userData.doorId);
+      o = o.parent;
+    }
+  }
+  return null;
+}
+
+function pickObject(evt) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const targets = [...furnitureMeshes.map(fm => fm.mesh), ...modelObjects.map(mo => mo.obj)];
+  const hits = raycaster.intersectObjects(targets, true);
+  for (const h of hits) {
+    let o = h.object;
+    while (o) {
+      if (o.userData && o.userData.furnitureId) return furnitureById(o.userData.furnitureId);
+      o = o.parent;
+    }
+  }
+  return null;
+}
+
+function editField(label, id, value, type = 'text') {
+  const numeric = type === 'number';
+  const step = numeric ? (id === 'ed-roty' ? '0.1' : '0.05') : '';
+  return `<label class="dbg-field">${label}<input id="${id}" type="${type}" value="${String(value ?? '').replace(/"/g, '&quot;')}" ${numeric ? `step="${step}"` : ''}></label>`;
+}
+
+function openDoorPanel(door) {
+  editKind = 'door';
+  editSel = { door };
+  const r = roomOf(door.room);
+  const panel = document.getElementById('debug-edit');
+  panel.style.display = 'block';
+  document.getElementById('dbg-edit-title').textContent = `🚪 ${door.name || door.id} (${r ? r.name : door.room})`;
+  document.getElementById('dbg-edit-fields').innerHTML =
+    editField('Largeur (m)', 'ed-width', door.width, 'number') +
+    editField('Hauteur (m)', 'ed-height', door.height, 'number') +
+    `<label class="dbg-field">Charnière<select id="ed-hinge">
+       <option value="a0" ${door.hinge !== 'a1' ? 'selected' : ''}>a0 (bord inférieur)</option>
+       <option value="a1" ${door.hinge === 'a1' ? 'selected' : ''}>a1 (bord supérieur)</option>
+     </select></label>` +
+    `<label class="dbg-field">Sens d'ouverture<select id="ed-opensign">
+       <option value="1" ${(door.openSign ?? 1) >= 0 ? 'selected' : ''}>+1 (vers l'intérieur)</option>
+       <option value="-1" ${(door.openSign ?? 1) < 0 ? 'selected' : ''}>-1 (vers l'extérieur)</option>
+     </select></label>` +
+    `<label class="dbg-field"><input type="checkbox" id="ed-nopanel" ${door.noPanel ? 'checked' : ''}> Ouverture brute (sans vantail)</label>` +
+    `<label class="dbg-field">Capteur associé (on = ouverte)<input id="ed-entity" value="${(door.entity || '').replace(/"/g, '&quot;')}" placeholder="ex: binary_sensor.porte"></label>`;
+  const search = document.getElementById('dbg-edit-search');
+  search.style.display = 'block';
+  search.value = '';
+  document.getElementById('dbg-edit-results').style.display = 'none';
+  search.oninput = () => searchEditEntities(search.value);
+}
+
+function openObjectPanel(f) {
+  editKind = 'object';
+  editSel = { f };
+  const r = roomOf(f.room);
+  const roomOpts = layout.levels.flatMap(l => l.rooms).map(rr =>
+    `<option value="${rr.id}" ${rr.id === f.room ? 'selected' : ''}>${rr.name}</option>`).join('');
+  const panel = document.getElementById('debug-edit');
+  panel.style.display = 'block';
+  document.getElementById('dbg-edit-title').textContent = `🛋️ ${f.name || f.id} (${r ? r.name : f.room})`;
+  const isModel = f.type === 'model';
+  document.getElementById('dbg-edit-fields').innerHTML =
+    `<label class="dbg-field">Pièce<select id="ed-room">${roomOpts}</select></label>` +
+    (isModel
+      ? editField('Rotation Y (rad)', 'ed-roty', f.rotY, 'number') + editField('Échelle', 'ed-scale', f.scale, 'number')
+      : editField('Largeur (m)', 'ed-w', f.w, 'number') +
+        editField('Profondeur (m)', 'ed-d', f.d, 'number') +
+        editField('Hauteur (m)', 'ed-height', f.h, 'number') +
+        `<label class="dbg-field">Couleur<input id="ed-color" type="color" value="${f.c || '#888888'}"></label>`);
+  document.getElementById('dbg-edit-search').style.display = 'none';
+  document.getElementById('dbg-edit-results').style.display = 'none';
+}
+
+async function searchEditEntities(q) {
+  const box = document.getElementById('dbg-edit-results');
+  if (!q || q.length < 2) { box.style.display = 'none'; return; }
+  try {
+    const r = await fetch(`/api/entities?q=${encodeURIComponent(q)}`);
+    const data = await r.json();
+    const hits = (data.entities || []).slice(0, 12);
+    box.innerHTML = (hits.length ? hits.map(h =>
+      `<div class="hit" data-entity="${h.entity_id}" data-name="${(h.friendly_name || '').replace(/"/g, '&quot;')}">
+         <span>${h.friendly_name || h.entity_id}</span><span class="dm">${h.domain}</span>
+       </div>`).join('') : '<div class="hit">Aucun résultat</div>');
+    box.style.display = 'block';
+    box.querySelectorAll('.hit').forEach(hit => {
+      hit.onclick = () => {
+        const input = document.getElementById('ed-entity');
+        if (input) input.value = hit.dataset.entity;
+        document.getElementById('dbg-edit-search').value = hit.dataset.name || hit.dataset.entity;
+        box.style.display = 'none';
+      };
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="hit">Erreur : ${e.message}</div>`;
+    box.style.display = 'block';
+  }
+}
+
+function openEditPanelForSelection() {
+  if (!editSel) return;
+  if (editKind === 'door') openDoorPanel(editSel.door);
+  else if (editKind === 'object') openObjectPanel(editSel.f);
+}
+
+function applyEdit() {
+  if (!editSel) return;
+  const msg = document.getElementById('debug-msg');
+  if (editKind === 'door') {
+    const door = editSel.door;
+    door.width = clamp(parseFloat(document.getElementById('ed-width').value) || 0.9, 0.5, 4);
+    door.height = clamp(parseFloat(document.getElementById('ed-height').value) || 2.1, 1.5, 4);
+    door.hinge = document.getElementById('ed-hinge').value;
+    door.openSign = parseInt(document.getElementById('ed-opensign').value, 10) || 1;
+    door.noPanel = document.getElementById('ed-nopanel').checked;
+    door.entity = document.getElementById('ed-entity').value.trim();
+    buildDoors();
+    msg.textContent = `💾 Porte « ${door.name || door.id} » mise à jour. Cliquez 💾 Sauvegarder pour écrire sur le serveur.`;
+  } else if (editKind === 'object') {
+    const f = editSel.f;
+    f.room = document.getElementById('ed-room').value;
+    if (f.type === 'model') {
+      f.rotY = parseFloat(document.getElementById('ed-roty').value) || 0;
+      f.scale = clamp(parseFloat(document.getElementById('ed-scale').value) || 1, 0.01, 10);
+    } else {
+      f.w = clamp(parseFloat(document.getElementById('ed-w').value) || 0.5, 0.05, 10);
+      f.d = clamp(parseFloat(document.getElementById('ed-d').value) || 0.5, 0.05, 10);
+      f.h = clamp(parseFloat(document.getElementById('ed-height').value) || 0.5, 0.05, 5);
+      f.c = document.getElementById('ed-color').value;
+    }
+    rebuildDecorVisual();
+    msg.textContent = `💾 Objet « ${f.name || f.id} » mis à jour. Cliquez 💾 Sauvegarder pour écrire sur le serveur.`;
+  }
+  msg.style.color = '#58a6ff';
+  openEditPanelForSelection();
+}
+
+function deleteEdit() {
+  if (!editSel) return;
+  if (!confirm('Supprimer cet élément du layout ?')) return;
+  if (editKind === 'door') {
+    layout.doors = (layout.doors || []).filter(d => d.id !== editSel.door.id);
+    buildDoors();
+  } else if (editKind === 'object') {
+    const lvl = layout.levels[0];
+    if (lvl.furniture) lvl.furniture = lvl.furniture.filter(f => f.id !== editSel.f.id);
+    rebuildDecorVisual();
+  }
+  closeEditPanel();
+  const msg = document.getElementById('debug-msg');
+  msg.style.color = '#58a6ff';
+  msg.textContent = '🗑️ Supprimé. Cliquez 💾 Sauvegarder pour écrire sur le serveur.';
+}
+
+function addDoor() {
+  const lvl = layout.levels[0];
+  const room = lvl.rooms[0] || { id: 'salon', name: 'Salon', x: 0, z: 0, w: 10, d: 10 };
+  const door = {
+    id: 'porte_' + Date.now().toString(36), name: 'Nouvelle porte', room: room.id,
+    rotY: 0, fixed: room.z, t: Math.round((room.x + room.w / 2) * 100) / 100,
+    width: 0.9, height: 2.1, hinge: 'a0', openSign: 1, entity: '',
+  };
+  layout.doors = layout.doors || [];
+  layout.doors.push(door);
+  buildDoors();
+  openDoorPanel(door);
+  document.getElementById('debug-sel').innerHTML =
+    `🆕 Porte créée sur le mur nord de « ${room.name} ». Drag = déplacer le long du mur.`;
+}
+
+function addObject() {
+  const lvl = layout.levels[0];
+  const room = lvl.rooms[0] || { id: 'salon', name: 'Salon', x: 0, z: 0, w: 10, d: 10 };
+  lvl.furniture = lvl.furniture || [];
+  const f = {
+    id: 'obj_' + Date.now().toString(36), type: 'box', name: 'Nouvel objet',
+    room: room.id, x: 0.5, z: 0.5, w: 1.0, d: 0.6, h: 0.8, c: '#8b949e',
+  };
+  lvl.furniture.push(f);
+  rebuildDecorVisual();
+  openObjectPanel(f);
+  document.getElementById('debug-sel').innerHTML =
+    `🆕 Objet créé au centre de « ${room.name} ». Drag = déplacer.`;
+}
+
+// --- Drag porte : déplacement le long de son mur (t) ---
+function startDoorDrag(evt, door) {
+  evt.preventDefault();
+  const hit = rayToPlane(evt, debugPlaneAt(0.1));
+  if (!hit) return;
+  editDrag = { kind: 'door', door, room: roomOf(door.room), start: { x: hit.x, z: hit.z }, moved: false };
+  controls.enabled = false;
+  renderer.domElement.classList.add('dragging');
+  renderer.domElement.setPointerCapture(evt.pointerId);
+}
+
+function continueDoorDrag(evt) {
+  const d = editDrag;
+  const hit = rayToPlane(evt, debugPlaneAt(0.1));
+  if (!hit) return;
+  const isV = Math.abs((d.door.rotY || 0) - Math.PI / 2) < DOOR_EPS_ROT;
+  const room = d.room;
+  let t;
+  if (isV) {
+    t = hit.z - (d.start.z - d.door.t);
+    if (room) t = clamp(t, room.z + 0.3, room.z + room.d - 0.3);
+  } else {
+    t = hit.x - (d.start.x - d.door.t);
+    if (room) t = clamp(t, room.x + 0.3, room.x + room.w - 0.3);
+  }
+  d.door.t = Math.round(t * 100) / 100;
+  d.moved = true;
+  buildDoors();
+}
+
+function endDoorDrag() {
+  const d = editDrag;
+  if (d && d.moved) {
+    document.getElementById('debug-sel').innerHTML =
+      `✅ Porte « ${d.door.name || d.door.id} » → t=${d.door.t}. 💾 pour sauvegarder.`;
+    if (editSel && editSel.door && editSel.door.id === d.door.id) openDoorPanel(d.door);
+  }
+  editDrag = null;
+  controls.enabled = true;
+  renderer.domElement.classList.remove('dragging');
+}
+
+// --- Drag objet : plan du sol, position relative à la pièce ---
+function startObjectDrag(evt, f) {
+  evt.preventDefault();
+  const hit = rayToPlane(evt, debugPlaneAt(0.1));
+  if (!hit) return;
+  const entry = furnitureMeshes.find(fm => fm.f === f);
+  const mo = modelObjects.find(m => m.f === f);
+  const y = entry ? entry.mesh.position.y : (mo ? mo.obj.position.y : 0.4);
+  editDrag = { kind: 'object', f, room: roomOf(f.room), start: { x: hit.x, z: hit.z }, orig: { x: f.x, z: f.z }, y, moved: false };
+  controls.enabled = false;
+  renderer.domElement.classList.add('dragging');
+  renderer.domElement.setPointerCapture(evt.pointerId);
+}
+
+function continueObjectDrag(evt) {
+  const d = editDrag;
+  const hit = rayToPlane(evt, debugPlaneAt(0.1));
+  if (!hit) return;
+  const room = d.room;
+  if (!room) return;
+  const dx = (hit.x - d.start.x) / room.w;
+  const dz = (hit.z - d.start.z) / room.d;
+  d.f.x = Math.round(clamp(d.orig.x + dx, 0.02, 0.98) * 100) / 100;
+  d.f.z = Math.round(clamp(d.orig.z + dz, 0.02, 0.98) * 100) / 100;
+  d.moved = true;
+  // Déplacement en direct (léger) ; le rebuild complet vient à la fin du drag
+  const entry = furnitureMeshes.find(fm => fm.f === d.f);
+  if (entry) entry.mesh.position.set(room.x + d.f.x * room.w, d.y, room.z + d.f.z * room.d);
+  const mo = modelObjects.find(m => m.f === d.f);
+  if (mo) mo.obj.position.set(room.x + d.f.x * room.w, d.y, room.z + d.f.z * room.d);
+}
+
+function endObjectDrag() {
+  const d = editDrag;
+  if (d && d.moved) {
+    document.getElementById('debug-sel').innerHTML =
+      `✅ Objet « ${d.f.name || d.f.id} » → x=${d.f.x} z=${d.f.z} (relatif ${d.room ? d.room.name : ''}). 💾 pour sauvegarder.`;
+    if (editSel && editSel.f && editSel.f.id === d.f.id) openObjectPanel(d.f);
+  }
+  editDrag = null;
+  controls.enabled = true;
+  renderer.domElement.classList.remove('dragging');
 }
 
 function exportDebugPositions() {
