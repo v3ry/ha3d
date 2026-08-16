@@ -19,6 +19,7 @@ Visualiseur 3D interactif (three.js) de la maison avec les capteurs Home Assista
   - **Undo/Redo : Ctrl+Z / Ctrl+Shift+Z** (toutes les éditions, jusqu'à 50 étapes)
   - Ajout / suppression d'entités HA (recherche en direct)
   - Capture de la caméra par défaut
+  - **Vues caméra enregistrées 🎥** : sauvegarder/rappeler des points de vue nommés (navigation animée)
   - Sauvegarde directe sur le serveur (backup automatique)
 - **Historique 24 h** par capteur (courbe)
 - **Alertes** : porte ouverte, batterie faible, température élevée
