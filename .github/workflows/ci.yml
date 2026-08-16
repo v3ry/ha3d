@@ -48,3 +48,19 @@ jobs:
             exit 1
           fi
           echo "aucun fichier sensible versionné ✓"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build de l'image Docker
+        run: docker build -t ha3d:ci .
+
+      - name: Smoke test du conteneur (sans HA, mode démo)
+        run: |
+          docker run -d --name ha3d-test -p 9125:9125 -e MAISON3D_PORT=9125 ha3d:ci
+          sleep 4
+          curl -fsS http://127.0.0.1:9125/api/layout | grep -q "house_name" && echo "conteneur OK (layout servi)"
+          docker logs ha3d-test 2>&1 | grep -iE "démonstration|error" | head -3 || true
+          docker rm -f ha3d-test >/dev/null

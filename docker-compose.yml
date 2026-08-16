@@ -1,0 +1,13 @@
+services:
+  ha3d:
+    build: .
+    container_name: ha3d
+    ports:
+      - "9125:9125"
+    env_file: .env
+    volumes:
+      # Ton layout (pièces, capteurs) — persiste entre les runs
+      - ./layout.json:/app/layout.json
+      # Backups automatiques du layout
+      - ./ha3d_layout_backups:/ha3d_layout_backups
+    restart: unless-stopped

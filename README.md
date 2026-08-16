@@ -62,11 +62,26 @@ systemctl --user enable --now maison3d
 
 ### Docker
 
-*(disponible prochainement)*
+```bash
+cp .env.example .env    # remplir HASS_URL + HA_TOKEN
+cp layout.example.json layout.json   # ou laisser la démo auto-générée
+
+# Build + lancement
+docker compose up -d --build
+# → http://127.0.0.1:9125
+```
+
+Le conteneur tourne en **utilisateur non-root**, monte `layout.json` et `ha3d_layout_backups/` en volumes (persistance + backups). Le serveur écrit les backups dans `HA3D_BACKUP_DIR` (défaut : `~/ha3d_layout_backups`, surchargeable).
+
+### Vérifier la configuration
+
+```bash
+python3 tools/check_config.py   # .env, connexion HA, validité du layout
+```
 
 ## ⚙️ Configuration
 
-- **`.env`** : `HASS_URL`, `HA_TOKEN` (obligatoires) ; `MAISON3D_HOST` (défaut `127.0.0.1`), `MAISON3D_PORT` (défaut `9125`) ; `HA3D_LAT`/`HA3D_LON` (optionnels — par défaut auto-détectés depuis la config HA)
+- **`.env`** : `HASS_URL`, `HA_TOKEN` (obligatoires) ; `MAISON3D_HOST` (défaut `127.0.0.1`), `MAISON3D_PORT` (défaut `9125`) ; `HA3D_LAT`/`HA3D_LON` (optionnels — par défaut auto-détectés depuis la config HA) ; `HA3D_BACKUP_DIR` (répertoire des backups, défaut `~/ha3d_layout_backups`)
 - **`layout.json`** : pièces, entités, positions, caméra — généré via l'éditeur 3D (mode debug), sauvegardé avec backup automatique dans `~/ha3d_layout_backups/`
 
 ## 🛡️ Sécurité
@@ -92,6 +107,8 @@ python3 -m unittest test_ha3d_server   # tests serveur + validation layout
 | `layout.example.json` | Layout de démonstration |
 | `models/` | Modèles glTF 3D (CC0 — poly.pizza + Khronos), servis par `/models/*.glb` |
 | `ha_ws.py` | Client websocket HA (pilotage dashboards Lovelace) |
+| `tools/` | Utilitaires : `check_config.py` (vérif pré-lancement), `fetch_furniture.py` (catalogue CC0) |
+| `Dockerfile`, `docker-compose.yml` | Conteneur (utilisateur non-root, volumes layout + backups) |
 
 ## 📦 Catalogue de modèles 3D
 

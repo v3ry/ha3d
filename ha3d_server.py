@@ -614,8 +614,8 @@ def save_layout(new_layout: dict) -> dict:
     if not ok:
         return {"ok": False, "error": f"layout invalide : {err}"}
     try:
-        # Backup du fichier actuel
-        backup_dir = BASE_DIR.parent / "ha3d_layout_backups"
+        # Backup du fichier actuel (répertoire configurable : HA3D_BACKUP_DIR)
+        backup_dir = Path(os.environ.get("HA3D_BACKUP_DIR", BASE_DIR.parent / "ha3d_layout_backups"))
         backup_dir.mkdir(exist_ok=True)
         ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = backup_dir / f"layout_{ts}.json"
