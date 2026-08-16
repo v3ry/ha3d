@@ -220,7 +220,7 @@
 <div id="debug-panel" class="hidden">
   <button class="close" id="debug-close">✕</button>
   <h2>🔧 Mode debug</h2>
-  <p class="dbg-hint">Clique-glisse : sphère (Sol X/Z ou Hauteur Y), ou pièce (mode Pièces : intérieur = déplacer, bords/coins = redimensionner). 💾 écrit tout sur le serveur.</p>
+  <p class="dbg-hint">Clique-glisse : sphère (Sol X/Z ou Hauteur Y), ou pièce (mode Pièces : intérieur = déplacer, bords/coins = redimensionner). Objet sélectionné : molette ou R = rotation Y (Shift+R = -90°). 💾 écrit tout sur le serveur.</p>
   <div class="dbg-modes">
     <button id="debug-mode-xz" class="active">↔ Sol (X/Z)</button>
     <button id="debug-mode-y">↕ Hauteur (Y)</button>
@@ -383,29 +383,79 @@ function addLights() {
   scene.add(dirLight);
 }
 
-// ============ MODE JOUR / NUIT ============
+// ============ MODE JOUR / NUIT SAISONNIER ============
 let dayNightMode = 'auto';  // 'auto' | 'day' | 'night'
-const DAY_START = 7, DAY_END = 21;  // heures
+
+// Position géographique de la maison (L'Arbresle)
+const HA_LAT = 45.83;
+const HA_LON = 4.62;
+
+// Position du soleil (méthode NOAA simplifiée) → { elev: degrés, az: degrés depuis le nord horaire }
+// az : 0 = nord, 90 = est, 180 = sud, 270 = ouest
+function sunPosition(date) {
+  const start = new Date(date.getFullYear(), 0, 0);
+  const n = Math.floor((date - start) / 86400000);
+  const decl = 23.44 * Math.sin(2 * Math.PI * (284 + n) / 365);  // déclinaison solaire (degrés)
+  // Décalage fuseau France : UTC+2 l'été (dernier dim mars → dernier dim oct), sinon UTC+1
+  const y = date.getFullYear();
+  const dstStart = new Date(y, 2, 31 - (new Date(y, 2, 31).getDay() + 1) % 7, 2);  // dernier dim mars
+  const dstEnd = new Date(y, 9, 31 - (new Date(y, 9, 31).getDay() + 1) % 7, 2);    // dernier dim oct
+  const offset = (date >= dstStart && date < dstEnd) ? 2 : 1;
+  const hSolar = date.getHours() + date.getMinutes() / 60 - offset + (HA_LON - 15) / 15;
+  const H = Math.PI * 15 * (hSolar - 12) / 180;  // angle horaire (radians)
+  const lat = HA_LAT * Math.PI / 180, dRad = decl * Math.PI / 180;
+  const sinElev = Math.sin(lat) * Math.sin(dRad) + Math.cos(lat) * Math.cos(dRad) * Math.cos(H);
+  const elev = Math.asin(Math.max(-1, Math.min(1, sinElev))) * 180 / Math.PI;
+  const ce = Math.cos(elev * Math.PI / 180);
+  let az = 0;
+  if (ce > 1e-9) {
+    const cosAz = Math.max(-1, Math.min(1,
+      (Math.sin(dRad) - Math.sin(lat) * Math.sin(elev * Math.PI / 180)) / (Math.cos(lat) * ce)));
+    az = Math.acos(cosAz) * 180 / Math.PI;
+    if (H > 0) az = 360 - az;  // après-midi → ouest
+  }
+  return { elev, az };
+}
 
 function dayNightFactor() {
   if (dayNightMode === 'day') return 1;
   if (dayNightMode === 'night') return 0;
-  const h = new Date().getHours();
-  if (h >= DAY_START && h < DAY_END) return 1;
-  // Transition douce aux limites (~1 h)
-  const before = (DAY_START - h);       // h < DAY_START
-  const after = (h - DAY_END + 1);      // h >= DAY_END
-  if (h >= DAY_START - 1 && h < DAY_START) return 1 - before;   // 6h→7h : montée
-  if (h >= DAY_END && h < DAY_END + 1) return 1 - after;        // 21h→22h : descente
-  return 0;
+  // Facteur continu depuis l'élévation du soleil : 0° = crépuscule, 12°+ = plein jour
+  const { elev } = sunPosition(new Date());
+  return clamp(elev / 12, 0, 1);
 }
 
+// Couleur du soleil : blanc à midi, orangé au lever/coucher
+function sunColor(elevDeg) {
+  const t = clamp(elevDeg / 15, 0, 1);  // 0 = horizon, 1 = haut dans le ciel
+  return new THREE.Color(1.0, 0.70 + 0.30 * t, 0.55 + 0.45 * t);
+}
+
+let _sunV = new THREE.Vector3();
 function applyDayNight(f) {
   if (!ambientLight || !dirLight) return;
   ambientLight.intensity = 0.15 + 0.40 * f;   // 0.15 nuit → 0.55 jour
   dirLight.intensity = 0.15 + 0.75 * f;       // 0.15 nuit → 0.90 jour
-  // Léger fond bleu nuit / noir jour
-  const r = 0.03 + 0.05 * f, g = 0.05 + 0.06 * f, b = 0.10 + 0.05 * f;
+
+  // Direction du soleil selon la position réelle (saison + heure) — sauf mode manuel
+  const now = new Date();
+  const sp = sunPosition(now);
+  let elev = sp.elev, az = sp.az;
+  if (dayNightMode === 'day') { elev = 55; az = 190; }        // soleil de mi-journée (sud)
+  if (dayNightMode === 'night') { elev = -35; az = 20; }      // lune au nord
+  const aRad = az * Math.PI / 180, eRad = elev * Math.PI / 180;
+  const R = 45;
+  // Repère scène : +x = est, +z = nord → soleil à l'est (az=90) → x+, au sud (az=180) → z-
+  _sunV.set(Math.sin(aRad) * Math.cos(eRad) * R, Math.sin(eRad) * R, Math.cos(aRad) * Math.cos(eRad) * R);
+  dirLight.position.copy(_sunV);
+
+  // Couleur de la lumière : orangée près de l'horizon (lever/coucher), blanche au zénith
+  dirLight.color.copy(sunColor(dayNightMode === 'night' ? -30 : elev));
+  // Fond : bleu nuit profond → bleu ciel, teinte chaude au lever/coucher
+  const warm = 1 - clamp(elev / 20, 0, 1);
+  const r = 0.03 + 0.05 * f + 0.06 * warm * f;
+  const g = 0.05 + 0.06 * f + 0.02 * warm * f;
+  const b = 0.10 + 0.05 * f;
   scene.background.setRGB(r, g, b);
 }
 function addGround() {
@@ -854,6 +904,7 @@ function buildDecor() {
       const mat = new THREE.MeshStandardMaterial({ color: f.c || '#888888', roughness:.8, metalness:.05 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(room.x + f.x*room.w, level.y_floor + f.h/2, room.z + f.z*room.d);
+      mesh.rotation.y = f.rotY || 0;
       mesh.castShadow = false;
       mesh.receiveShadow = true;  // l'objet s'assombrit dans l'ombre des murs/portes
       mesh.userData = { furnitureId: f.id };
@@ -1545,6 +1596,7 @@ function showFlash(msg, color = '#3fb950') {
 }
 
 function bindUI() {
+  bindRotateWheel();
   document.getElementById('detail-close').onclick = () => { document.getElementById('detail').style.display = 'none'; hideRoomPanel(); };
   document.getElementById('room-close').onclick = () => hideRoomPanel();
   document.getElementById('btn-labels').onclick = (e) => {
@@ -2029,11 +2081,50 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   const mod = e.ctrlKey || e.metaKey;
-  if (!mod) return;
   const k = e.key.toLowerCase();
-  if (k === 'z') { e.preventDefault(); if (e.shiftKey) redoLayout(); else undoLayout(); }
-  else if (k === 'y') { e.preventDefault(); redoLayout(); }
+  if (mod) {
+    if (k === 'z') { e.preventDefault(); if (e.shiftKey) redoLayout(); else undoLayout(); }
+    else if (k === 'y') { e.preventDefault(); redoLayout(); }
+    return;
+  }
+  // Rotation de l'objet sélectionné : R = +90°, Shift+R = -90°
+  if (k === 'r' && editKind === 'object' && editSel) {
+    e.preventDefault();
+    rotateSelectedObject(e.shiftKey ? -90 : 90);
+  }
 });
+
+// Rotation à la molette : objet sélectionné → la molette tourne (au lieu de zoomer)
+let _rotGesture = false;
+let _rotGestureT = null;
+function bindRotateWheel() {
+  renderer.domElement.addEventListener('wheel', (e) => {
+    if (editKind !== 'object' || !editSel) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!_rotGesture) { pushUndo(); _rotGesture = true; }
+    rotateSelectedObject(e.deltaY > 0 ? 5 : -5);
+    // Le geste se termine après une inactivité de 400 ms
+    clearTimeout(_rotGestureT);
+    _rotGestureT = setTimeout(() => { _rotGesture = false; }, 400);
+  }, { passive: false });
+}
+
+// Tourne l'objet sélectionné de deltaDeg autour de Y, sans rebuild complet
+function rotateSelectedObject(deltaDeg) {
+  const f = editSel.f;
+  f.rotY = ((f.rotY || 0) + deltaDeg * Math.PI / 180) % (2 * Math.PI);
+  // Applique directement au mesh/objet 3D (évite un rebuild complet)
+  const entry = furnitureMeshes.find(fm => fm.f === f);
+  if (entry) entry.mesh.rotation.y = f.rotY;
+  const mo = modelObjects.find(m => m.f === f);
+  if (mo) mo.obj.rotation.y = f.rotY;
+  // Met à jour le champ du panneau (en degrés)
+  const inp = document.getElementById('ed-roty');
+  if (inp) inp.value = Math.round(f.rotY * 180 / Math.PI);
+  document.getElementById('debug-sel').innerHTML =
+    `🔄 « ${f.name || f.id} » : ${Math.round(f.rotY * 180 / Math.PI)}°. R = +90° (Shift+R = -90°). 💾 pour sauvegarder.`;
+}
 
 function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 
@@ -2090,7 +2181,7 @@ function pickObject(evt) {
 
 function editField(label, id, value, type = 'text') {
   const numeric = type === 'number';
-  const step = numeric ? (id === 'ed-roty' ? '0.1' : '0.05') : '';
+  const step = numeric ? (id === 'ed-roty' ? '1' : '0.05') : '';
   return `<label class="dbg-field">${label}<input id="${id}" type="${type}" value="${String(value ?? '').replace(/"/g, '&quot;')}" ${numeric ? `step="${step}"` : ''}></label>`;
 }
 
@@ -2144,8 +2235,9 @@ function openObjectPanel(f) {
     `<label class="dbg-field">Type<select id="ed-model" onchange="onModelTypeChange()">${modelOpts}</select></label>` +
     editField('Nom', 'ed-name', f.name || f.id) +
     `<label class="dbg-field">Pièce<select id="ed-room">${roomOpts}</select></label>` +
+    editField('Rotation Y (°)', 'ed-roty', Math.round((f.rotY || 0) * 180 / Math.PI), 'number') +
     (isModel
-      ? editField('Rotation Y (rad)', 'ed-roty', f.rotY, 'number') + editField('Échelle', 'ed-scale', f.scale, 'number')
+      ? editField('Échelle', 'ed-scale', f.scale, 'number')
       : editField('Largeur (m)', 'ed-w', f.w, 'number') +
         editField('Profondeur (m)', 'ed-d', f.d, 'number') +
         editField('Hauteur (m)', 'ed-height', f.h, 'number') +
@@ -2328,8 +2420,9 @@ function applyEdit() {
     const on = document.getElementById('ed-name').value.trim();
     if (on) f.name = on;
     f.room = document.getElementById('ed-room').value;
+    // Rotation en degrés dans le panneau → radians dans le layout
+    f.rotY = (parseFloat(document.getElementById('ed-roty').value) || 0) * Math.PI / 180;
     if (f.type === 'model') {
-      f.rotY = parseFloat(document.getElementById('ed-roty').value) || 0;
       f.scale = clamp(parseFloat(document.getElementById('ed-scale').value) || 1, 0.01, 10);
     } else {
       f.w = clamp(parseFloat(document.getElementById('ed-w').value) || 0.5, 0.05, 10);
