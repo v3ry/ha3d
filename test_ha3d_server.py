@@ -76,8 +76,14 @@ class TestStatusEntry(unittest.TestCase):
         self.assertEqual(out["unit"], "°C")
 
     def test_entite_absente(self):
-        out = h._status_entry({"entity": "sensor.inconnu"}, {})
-        self.assertEqual(out["state"], "unavailable")
+        # Hors mode démo : entité inconnue → "unavailable"
+        old_demo = h.IS_DEMO
+        h.IS_DEMO = False
+        try:
+            out = h._status_entry({"entity": "sensor.inconnu"}, {})
+            self.assertEqual(out["state"], "unavailable")
+        finally:
+            h.IS_DEMO = old_demo
 
 
 class TestValidateLayout(unittest.TestCase):
