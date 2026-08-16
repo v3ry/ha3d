@@ -32,7 +32,26 @@ Visualiseur 3D interactif (three.js) de la maison avec les capteurs Home Assista
 | `ha3d_server.py` | Serveur HTTP + proxy API HA (layout, status, history, toggle, save-layout, entités) |
 | `index.html` | Client three.js (rendu, interactions, mode debug) |
 | `layout.json` | Configuration : pièces, entités, positions, caméra par défaut |
-| `models/` | Modèles glTF (Khronos Sample Models, CC0) |
+| `models/` | Modèles glTF 3D (CC0 — poly.pizza + Khronos), servis par `/models/*.glb` |
+
+## Catalogue de modèles 3D
+
+Le panneau objet permet de choisir le type : **🟫 Boîte simple** ou **🧊 modèle 3D** (liste chargée depuis `/api/models`). Pour ajouter un modèle : déposer un fichier `.glb` dans `models/` — il apparaît automatiquement dans la liste.
+
+Catalogue actuel (28 modèles, tous CC0) :
+
+| Fichier | Modèle source |
+|---|---|
+| `Canape.glb`, `CanapeAngle.glb`, `CanapeCouch.glb` | Canapés (poly.pizza, CC0) |
+| `TableManger.glb`, `TableBasse.glb`, `TableChevet.glb` | Tables (poly.pizza, CC0) |
+| `Lit.glb`, `LitSimple.glb`, `Bureau.glb`, `Chaise.glb`, `ChaiseBureau.glb`, `Fauteuil.glb`, `Tabouret.glb` | Chaises & bureau (poly.pizza, CC0) |
+| `Armoire.glb`, `Bibliotheque.glb`, `Etagere.glb`, `MeubleTV.glb`, `MeubleCuisine.glb`, `TV.glb`, `Frigo.glb` | Rangements & électroménager (poly.pizza, CC0) |
+| `Lampadaire.glb`, `LampeTable.glb` | Lampes (poly.pizza, CC0) |
+| `Baignoire.glb`, `WC.glb`, `Evier.glb` | Salle de bain (poly.pizza, CC0) |
+| `Plante.glb` | Plante verte (poly.pizza, CC0) |
+| `Duck.glb`, `SheenChair.glb` | Khronos Sample Models (CC0) |
+
+Source : [poly.pizza](https://poly.pizza) (recherche CC0 1.0) — voir `models/README.md` pour la liste détaillée.
 | `ha_ws.py` | Client websocket HA (pilotage dashboards Lovelace) |
 
 ## Démarrage
